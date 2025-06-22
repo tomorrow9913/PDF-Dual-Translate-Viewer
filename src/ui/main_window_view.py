@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar
+from PySide6.QtCore import Qt, QRectF, Signal
 from PySide6.QtGui import QPixmap
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
 import fitz  # PyMuPDF
@@ -61,8 +61,14 @@ class MainWindow(QMainWindow):
         self.font_decrease_btn.setFixedWidth(28)
         self.font_decrease_btn.clicked.connect(self.decrease_font_size)
         toolbar_layout.addWidget(self.font_decrease_btn)
+        
         toolbar_layout.addStretch(1)
         self.main_layout.addLayout(toolbar_layout)
+
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setRange(0, 0) # Indeterminate mode
+        self.progress_bar.setVisible(False) # Initially hidden
+        self.main_layout.addWidget(self.progress_bar)
 
     def _on_auto_translate_changed(self, state):
         self.auto_translate = self.auto_translate_checkbox.isChecked()
@@ -438,12 +444,15 @@ class MainWindow(QMainWindow):
         """
         asyncio.create_task(self._run_translation_async())
 
+
     async def _run_translation_async(self):
         if not hasattr(self, '_current_pdf') or self._current_pdf is None:
             QMessageBox.warning(self, "경고", "먼저 PDF 파일을 열어주세요.")
             return
         page = self._current_pdf[self._current_page]
         page_rect = page.rect
+
+        self.progress_bar.setVisible(True) # Show progress bar
         segments = []
         for block in page.get_text("dict")['blocks']:
             if block['type'] != 0:
@@ -505,3 +514,4 @@ class MainWindow(QMainWindow):
             image_views=image_views
         )
         self.display_page(view_model)
+        self.progress_bar.setVisible(False) # Hide progress bar on success
