@@ -1,86 +1,18 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication, QDialog, QScrollArea
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl, QEvent
 from PySide6.QtGui import QPixmap, QImage
-from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
+from src.infrastructure.dtos.pdf_view_dtos import (HighlightUpdateInfo, ImageViewData, PageDisplayViewModel, SegmentViewData)
+from src.ui.widgets.pdf_view_widget import PdfViewWidget
 import fitz  # PyMuPDF
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 import asyncio
 from src.infrastructure.translation.google_translate_async import google_translate
-
-LANGUAGES = {
-    "auto": "Auto Detect",
-    "en": "English",
-    "ko": "Korean",
-    "ja": "Japanese",
-    "zh-CN": "Chinese (Simplified)",
-    "zh-TW": "Chinese (Traditional)",
-    "fr": "French",
-    "de": "German",
-    "es": "Spanish",
-    "ru": "Russian",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "vi": "Vietnamese",
-    "id": "Indonesian",
-    "th": "Thai",
-    "ar": "Arabic",
-    "hi": "Hindi",
-    "tr": "Turkish",
-    "pl": "Polish",
-    "nl": "Dutch",
-    "sv": "Swedish",
-    "fi": "Finnish",
-    "no": "Norwegian",
-    "da": "Danish",
-    "cs": "Czech",
-    "hu": "Hungarian",
-    "he": "Hebrew",
-    "el": "Greek",
-    "ro": "Romanian",
-    "sk": "Slovak",
-    "uk": "Ukrainian",
-    "bg": "Bulgarian",
-    "hr": "Croatian",
-    "sr": "Serbian",
-    "fa": "Persian",
-    "ms": "Malay",
-    "tl": "Tagalog",
-    "et": "Estonian",
-    "lv": "Latvian",
-    "lt": "Lithuanian",
-    "sl": "Slovenian",
-    "mt": "Maltese",
-    "ga": "Irish",
-    "sq": "Albanian",
-    "mk": "Macedonian",
-    "af": "Afrikaans",
-    "sw": "Swahili",
-    "zu": "Zulu",
-    "xh": "Xhosa",
-    "st": "Southern Sotho",
-    "tn": "Tswana",
-    "ts": "Tsonga",
-    "ss": "Swati",
-    "ve": "Venda",
-    "nr": "South Ndebele",
-    "nso": "Northern Sotho",
-    "kg": "Kongo",
-    "rw": "Kinyarwanda",
-    "so": "Somali",
-    "yo": "Yoruba",
-    "ig": "Igbo",
-    "ha": "Hausa",
-    "am": "Amharic",
-    "om": "Oromo",
-    "ti": "Tigrinya",
-    "sn": "Shona",
-    "ny": "Chichewa",
-    "mg": "Malagasy",
-    "rn": "Kirundi",
-    "ln": "Lingala",
-    "lu": "Luba-Katanga",
-    "to": "Tonga",
-}
+from src.core.use_cases.pdf_page_service import PdfPageService
+from src.core.use_cases.pdf_parsing_service import PdfParsingService
+from src.core.use_cases.translation_service import TranslationService
+from src.common.constants import LANGUAGES
+from src.adapters.controllers.pdf_controller import PdfController
+from src.adapters.presenters.pdf_presenter import PdfPresenter
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -90,6 +22,7 @@ class MainWindow(QMainWindow):
         self.auto_translate = False
         self._current_view_model = None
         self.sidebar_visible = False
+        self.controller = PdfController()  # 컨트롤러 인스턴스 생성
         # self.outline_tree와 self.sidebar를 항상 생성
         self.outline_tree = QTreeWidget()
         self.outline_tree.setHeaderLabels(["Title"])
@@ -381,18 +314,20 @@ class MainWindow(QMainWindow):
         )
         self.display_page(dummy_page_view_model)
 
-    def display_page(self, view_model: PageDisplayViewModel):
-        page_width = view_model.page_width
-        page_height = view_model.page_height
-        # 원본 뷰는 원본 세그먼트와 이미지를 렌더링
-        self.original_pdf_widget.render_page(view_model.original_segments_view, view_model.image_views, page_width, page_height)
-        # 번역본 뷰는 번역된 세그먼트와 원본 이미지를 렌더링 (이미지는 번역 대상이 아니므로)
-        self.translated_pdf_widget.render_page(view_model.translated_segments_view, view_model.image_views, page_width, page_height)
-        self.page_input.setText(str(view_model.page_number))
+    def display_page(self, view_model):
+        # 프레젠터를 통해 UI 데이터 추출
+        page_data = PdfPresenter.present_page(view_model)
+        page_width = page_data['page_width']
+        page_height = page_data['page_height']
+        self.original_pdf_widget.render_page(page_data['original_segments'], page_data['image_views'], page_width, page_height)
+        self.translated_pdf_widget.render_page(page_data['translated_segments'], page_data['image_views'], page_width, page_height)
+        self.page_input.setText(str(page_data['page_number']))
         self._current_view_model = view_model
 
-    def update_highlights(self, highlight_info: HighlightUpdateInfo):
-        for segment_id, should_highlight in highlight_info.segments_to_update.items():
+    def update_highlights(self, highlight_info):
+        # 프레젠터를 통해 하이라이트 데이터 추출
+        segments_to_update = PdfPresenter.present_highlights(highlight_info)
+        for segment_id, should_highlight in segments_to_update.items():
             if segment_id.startswith("orig_"):
                 self.original_pdf_widget.update_single_segment_highlight(segment_id, should_highlight)
             elif segment_id.startswith("trans_"):
@@ -403,19 +338,16 @@ class MainWindow(QMainWindow):
         all_trans_ids = self.translated_pdf_widget._current_segments_on_display.keys()
         all_segment_ids = list(all_orig_ids) + list(all_trans_ids)
 
-        segments_to_update = {s_id: False for s_id in all_segment_ids}
+        # 비즈니스 로직 분리: PdfPageService 사용
+        segments_to_update = PdfPageService.update_highlights(all_segment_ids, segment_id)
 
+        # 번역/원본 동기화 로직은 기존대로 유지
         if segment_id:
-            segments_to_update[segment_id] = True
-
-            # Dummy mapping logic (e.g., 'orig_1' <-> 'trans_1')
             if view_context == "ORIGINAL" and segment_id.startswith("orig_"):
-                # Find corresponding translated segment
                 translated_sibling_id = segment_id.replace("orig_", "trans_")
                 if translated_sibling_id in all_trans_ids:
                     segments_to_update[translated_sibling_id] = True
             elif view_context == "TRANSLATED" and segment_id.startswith("trans_"):
-                # Find corresponding original segment
                 original_sibling_id = segment_id.replace("trans_", "orig_")
                 if original_sibling_id in all_orig_ids:
                     segments_to_update[original_sibling_id] = True
@@ -523,14 +455,14 @@ class MainWindow(QMainWindow):
 
     def _open_pdf_file_path(self, file_path):
         try:
-            doc = fitz.open(file_path)
-            self._current_pdf = doc
+            self.controller.open_pdf(file_path)
+            self._current_pdf = self.controller.pdf_doc
             self._current_pdf_path = file_path
             self._current_page = 0
-            # 썸네일만 갱신하지 않고, 항상 메인 뷰어/아웃라인/썸네일 모두 갱신
             if self.sidebar:
                 self._load_pdf_outline()
             if self.auto_translate:
+                import asyncio
                 asyncio.create_task(self._run_translation_async())
             else:
                 self._show_pdf_page(0)
@@ -565,87 +497,16 @@ class MainWindow(QMainWindow):
         if page_number < 0 or page_number >= self._current_pdf.page_count:
             return
         self._current_page = page_number
-
-        # 먼저 원본 뷰를 즉시 렌더링합니다. 번역본 뷰는 원본 텍스트를 임시로 보여줍니다.
-        page = self._current_pdf[page_number]
-        links = page.get_links()
-        page_rect = page.rect
-        # 이미지 추출
-        image_views = []
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            base_image = self._current_pdf.extract_image(xref)
-            if not base_image:
-                continue
-            image_bytes = base_image["image"]
-            pixmap = QPixmap()
-            pixmap.loadFromData(image_bytes)
-            img_rect = page.get_image_bbox(img_info)
-            if not pixmap.isNull() and img_rect.is_valid:
-                image_views.append(ImageViewData(pixmap=pixmap, rect=QRectF(img_rect.x0, img_rect.y0, img_rect.width, img_rect.height)))
-        segments = []
-        for block in page.get_text("dict")['blocks']:
-            if block['type'] != 0:
-                continue
-            for line in block['lines']:
-                line_rect = fitz.Rect(line['bbox'])
-                line_link_uri = None
-                # 이 텍스트 라인이 링크 영역과 겹치는지 확인
-                for link in links:
-                    if fitz.Rect(link['from']).intersects(line_rect):
-                        if link['kind'] == fitz.LINK_GOTO:
-                            line_link_uri = f"page:{link['page']}"
-                        elif link['kind'] == fitz.LINK_URI:
-                            line_link_uri = link['uri']
-                        break  # 이 라인에 대한 링크를 찾았으므로 중단
-
-                for span in line['spans']:
-                    rect = (span['bbox'][0], span['bbox'][1], span['bbox'][2]-span['bbox'][0], span['bbox'][3]-span['bbox'][1])
-                    seg = SegmentViewData(
-                        segment_id=f"orig_{page_number}_{span['bbox']}",
-                        text=span['text'],
-                        rect=rect,
-                        font_family=span.get('font', 'Arial'),
-                        font_size=span['size'],
-                        font_color="#000000",
-                        is_bold='bold' in span.get('font', '').lower(),
-                        is_italic='italic' in span.get('font', '').lower(),
-                        is_highlighted=False,
-                        link_uri=line_link_uri
-                    )
-                    segments.append(seg)
-        view_model = PageDisplayViewModel(
-            page_number=page_number+1,
-            page_width=page_rect.width,
-            page_height=page_rect.height,
-            original_segments_view=segments,
-            translated_segments_view=[
-                SegmentViewData(
-                    segment_id=seg.segment_id.replace("orig_", "trans_"),
-                    text=seg.text,
-                    rect=seg.rect.getRect(),
-                    font_family=seg.font_family,
-                    font_size=seg.font_size,
-                    font_color=seg.font_color.name(),
-                    is_bold=seg.is_bold,
-                    is_italic=seg.is_italic,
-                    is_highlighted=seg.is_highlighted
-                ) for seg in segments
-            ],
-            image_views=image_views
-        )
+        view_model = self.controller.get_page_view_model(page_number)
         self.display_page(view_model)
         self.page_input.setText(str(page_number+1))
         self.page_count_label.setText(f"/ {self._current_pdf.page_count}")
-
-        # 반드시 썸네일, 뷰어, 아웃라인 모두 갱신
         self._update_pdf_thumbnail()
         self._update_thumbnail_position()
         if self.sidebar:
             self._load_pdf_outline()
-
-        # 자동 번역이 활성화된 경우, 백그라운드에서 번역을 시작합니다.
         if self.auto_translate:
+            import asyncio
             asyncio.create_task(self._run_translation_async())
 
     def run_translation(self):
@@ -657,58 +518,37 @@ class MainWindow(QMainWindow):
 
 
     async def _run_translation_async(self):
-        # 현재 표시된 원본 세그먼트를 가져옵니다.
-        original_segments = list(self.original_pdf_widget._current_segments_on_display.values())
-        if not original_segments:
+        if not self.controller.view_model:
             self.show_status_message("번역할 내용이 없습니다.")
             return
-
         self.progress_bar.setVisible(True)
         try:
-            # 1. 번역 실행
-            texts_to_translate = [seg.text for seg in original_segments]
             source_lang = self.original_lang_combo.currentData()
             target_lang = self.target_lang_combo.currentData()
-            tasks = [google_translate(text, source=source_lang, target=target_lang) for text in texts_to_translate]
-            translated_texts = await asyncio.gather(*tasks)
-            self._last_translated_texts = {i: t for i, t in enumerate(translated_texts)}
-
-            # 2. 번역된 세그먼트 데이터 생성
-            translated_segments = [
-                SegmentViewData(
-                    segment_id=seg.segment_id.replace("orig_", "trans_"),
-                    text=translated_texts[i] if translated_texts[i] else seg.text,
-                    rect=seg.rect.getRect(),
-                    font_family=seg.font_family,
-                    font_size=seg.font_size,
-                    font_color=seg.font_color.name(),
-                    is_bold=seg.is_bold,
-                    is_italic=seg.is_italic,
-                    is_highlighted=seg.is_highlighted
-                ) for i, seg in enumerate(original_segments)
-            ]
-
-            # 3. 현재 뷰 모델에서 이미지와 페이지 크기 정보 가져오기
-            if not self._current_view_model:
+            translated_segments = await self.controller.translate_current_page(source_lang, target_lang)
+            if not translated_segments:
                 return
-            image_views = self._current_view_model.image_views
-            page_width = self._current_view_model.page_width
-            page_height = self._current_view_model.page_height
-
-            # 4. 번역본 뷰만 업데이트
+            image_views = self.controller.view_model.image_views
+            page_width = self.controller.view_model.page_width
+            page_height = self.controller.view_model.page_height
             self.translated_pdf_widget.render_page(
                 translated_segments,
                 image_views,
                 page_width,
                 page_height
             )
-            # 5. 현재 뷰 모델의 번역본 데이터도 업데이트 (일관성 유지)
-            self._current_view_model.translated_segments_view = translated_segments
-
+            self.controller.view_model.translated_segments_view = translated_segments
         except Exception as e:
             QMessageBox.critical(self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}")
         finally:
             self.progress_bar.setVisible(False)
+
+    def _handle_segment_hover(self, view_context: str, segment_id):
+        all_orig_ids = self.original_pdf_widget._current_segments_on_display.keys()
+        all_trans_ids = self.translated_pdf_widget._current_segments_on_display.keys()
+        all_segment_ids = list(all_orig_ids) + list(all_trans_ids)
+        segments_to_update = self.controller.get_highlight_update(all_segment_ids, segment_id, view_context)
+        self.update_highlights(HighlightUpdateInfo(segments_to_update))
 
     def _filter_combo(self, combo, text):
         # 입력값이 코드/이름에 포함된 첫 항목을 선택
