@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self.sidebar_visible = False
         self.outline_tree = None
         self.sidebar = None
+        self.setAcceptDrops(True)  # 드래그&드롭 허용
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -444,25 +445,19 @@ class MainWindow(QMainWindow):
             return
         self.outline_tree.clear()
         try:
-            outline = self._current_pdf.get_toc(simple=False)
-            if not outline:
+            flat_toc = self._current_pdf.get_toc()
+            if not flat_toc:
                 root = QTreeWidgetItem(["(No outline)"])
                 self.outline_tree.addTopLevelItem(root)
                 return
-            def add_items(parent, items):
-                for item in items:
-                    node = QTreeWidgetItem([item['title']])
-                    node.setData(0, Qt.UserRole, item.get('page', None))
-                    parent.addChild(node)
-                    if 'children' in item and item['children']:
-                        add_items(node, item['children'])
-            # PyMuPDF의 get_toc(simple=False)는 트리 구조를 반환하지 않으므로 변환 필요
-            def build_tree(flat):
-                stack = []
-                root = QTreeWidgetItem(["Root"])
-                last_level = 1
-                last_item = root
-                for entry in flat:
+
+            def build_tree(flat_toc_list):
+                # A dummy root item to hold all top-level items
+                root_item = QTreeWidgetItem()
+                # A dictionary to keep track of the last item at each level
+                parents = {0: root_item}
+
+                for entry in flat_toc_list:
                     # 목차 항목이 리스트 형태이고 최소 3개 이상의 요소를 가지는지 확인
                     if not isinstance(entry, list) or len(entry) < 3:
                         self.show_status_message(f"경고: 목차 항목 형식이 잘못되었습니다: {entry}. 건너뜁니다.", timeout=5000)
@@ -470,27 +465,24 @@ class MainWindow(QMainWindow):
                     level, title, page = entry[:3]
                     item = QTreeWidgetItem([title])
                     item.setData(0, Qt.UserRole, page)
-                    if level == last_level:
-                        if stack:
-                            stack[-1].addChild(item)
-                    elif level > last_level:
-                        stack.append(last_item)
-                        last_item.addChild(item)
+
+                    # The parent is at level-1.
+                    parent_item = parents.get(level - 1)
+                    if parent_item:
+                        parent_item.addChild(item)
                     else:
-                        for _ in range(last_level - level):
-                            stack.pop()
-                        stack[-1].addChild(item)
-                    last_level = level
-                    last_item = item
-                return root
-            flat = self._current_pdf.get_toc()
-            if flat:
-                tree = build_tree(flat)
-                for i in range(tree.childCount()):
-                    self.outline_tree.addTopLevelItem(tree.child(i))
-            else:
-                root = QTreeWidgetItem(["(No outline)"])
-                self.outline_tree.addTopLevelItem(root)
+                        # Fallback for malformed TOC where levels are skipped. Add to the root.
+                        root_item.addChild(item)
+                    # Register the current item as the parent for the next level.
+                    parents[level] = item
+                return root_item
+
+            root_node = build_tree(flat_toc)
+            if root_node:
+                # Move children from the dummy root to the actual tree widget
+                while root_node.childCount() > 0:
+                    child = root_node.takeChild(0)
+                    self.outline_tree.addTopLevelItem(child)
         except Exception as e:
             root = QTreeWidgetItem([f"(Outline error: {e})"])
             self.outline_tree.addTopLevelItem(root)
@@ -500,10 +492,7 @@ class MainWindow(QMainWindow):
         if page is not None:
             self._show_pdf_page(page - 1)
 
-    def open_pdf_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "PDF 파일 열기", "", "PDF Files (*.pdf)")
-        if not file_path:
-            return
+    def _open_pdf_file_path(self, file_path):
         try:
             doc = fitz.open(file_path)
             self._current_pdf = doc
@@ -517,6 +506,28 @@ class MainWindow(QMainWindow):
                 self._show_pdf_page(0)
         except Exception as e:
             QMessageBox.critical(self, "PDF 열기 오류", f"PDF 파일을 열 수 없습니다.\n{e}")
+
+    def open_pdf_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "PDF 파일 열기", "", "PDF Files (*.pdf)")
+        if not file_path:
+            return
+        self._open_pdf_file_path(file_path)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith('.pdf'):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith('.pdf'):
+                self._open_pdf_file_path(file_path)
+                break
+        event.acceptProposedAction()
 
     def _show_pdf_page(self, page_number):
         if not hasattr(self, '_current_pdf') or self._current_pdf is None:
