@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
@@ -89,6 +89,9 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 800, 600)
         self.auto_translate = False
         self._current_view_model = None
+        self.sidebar_visible = False
+        self.outline_tree = None
+        self.sidebar = None
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -111,6 +114,12 @@ class MainWindow(QMainWindow):
     def _create_toolbar(self):
         toolbar_layout = QHBoxLayout()
         toolbar_layout.setContentsMargins(10, 5, 10, 5)
+        # 햄버거 버튼
+        self.menu_btn = QPushButton("☰")
+        self.menu_btn.setFixedWidth(32)
+        self.menu_btn.clicked.connect(self.toggle_sidebar)
+        toolbar_layout.addWidget(self.menu_btn)
+        # 파일 열기 버튼
         file_open_btn = QPushButton("파일 열기")
         file_open_btn.clicked.connect(self.open_pdf_file)
         toolbar_layout.addWidget(file_open_btn)
@@ -419,6 +428,78 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 QDesktopServices.openUrl(QUrl(link))
 
+    def toggle_sidebar(self):
+        if not self.sidebar:
+            self.sidebar = QDockWidget("PDF 목차", self)
+            self.sidebar.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+            self.outline_tree = QTreeWidget()
+            self.outline_tree.setHeaderLabels(["Title"])
+            self.outline_tree.itemClicked.connect(self._on_outline_item_clicked)
+            self.sidebar.setWidget(self.outline_tree)
+            self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar)
+        self.sidebar.setVisible(not self.sidebar.isVisible())
+
+    def _load_pdf_outline(self):
+        if not hasattr(self, '_current_pdf') or self._current_pdf is None or not self.outline_tree:
+            return
+        self.outline_tree.clear()
+        try:
+            outline = self._current_pdf.get_toc(simple=False)
+            if not outline:
+                root = QTreeWidgetItem(["(No outline)"])
+                self.outline_tree.addTopLevelItem(root)
+                return
+            def add_items(parent, items):
+                for item in items:
+                    node = QTreeWidgetItem([item['title']])
+                    node.setData(0, Qt.UserRole, item.get('page', None))
+                    parent.addChild(node)
+                    if 'children' in item and item['children']:
+                        add_items(node, item['children'])
+            # PyMuPDF의 get_toc(simple=False)는 트리 구조를 반환하지 않으므로 변환 필요
+            def build_tree(flat):
+                stack = []
+                root = QTreeWidgetItem(["Root"])
+                last_level = 1
+                last_item = root
+                for entry in flat:
+                    # 목차 항목이 리스트 형태이고 최소 3개 이상의 요소를 가지는지 확인
+                    if not isinstance(entry, list) or len(entry) < 3:
+                        self.show_status_message(f"경고: 목차 항목 형식이 잘못되었습니다: {entry}. 건너뜁니다.", timeout=5000)
+                        continue
+                    level, title, page = entry[:3]
+                    item = QTreeWidgetItem([title])
+                    item.setData(0, Qt.UserRole, page)
+                    if level == last_level:
+                        if stack:
+                            stack[-1].addChild(item)
+                    elif level > last_level:
+                        stack.append(last_item)
+                        last_item.addChild(item)
+                    else:
+                        for _ in range(last_level - level):
+                            stack.pop()
+                        stack[-1].addChild(item)
+                    last_level = level
+                    last_item = item
+                return root
+            flat = self._current_pdf.get_toc()
+            if flat:
+                tree = build_tree(flat)
+                for i in range(tree.childCount()):
+                    self.outline_tree.addTopLevelItem(tree.child(i))
+            else:
+                root = QTreeWidgetItem(["(No outline)"])
+                self.outline_tree.addTopLevelItem(root)
+        except Exception as e:
+            root = QTreeWidgetItem([f"(Outline error: {e})"])
+            self.outline_tree.addTopLevelItem(root)
+
+    def _on_outline_item_clicked(self, item, column):
+        page = item.data(0, Qt.UserRole)
+        if page is not None:
+            self._show_pdf_page(page - 1)
+
     def open_pdf_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "PDF 파일 열기", "", "PDF Files (*.pdf)")
         if not file_path:
@@ -428,6 +509,8 @@ class MainWindow(QMainWindow):
             self._current_pdf = doc
             self._current_pdf_path = file_path
             self._current_page = 0
+            if self.sidebar:
+                self._load_pdf_outline()
             if self.auto_translate:
                 asyncio.create_task(self._run_translation_async())
             else:
