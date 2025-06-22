@@ -3,8 +3,9 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QApplication, QMainWindow,
     QHBoxLayout, QLabel, QPushButton, QLineEdit, QGraphicsItem, QSizePolicy, QGraphicsPixmapItem
 )
-from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtCore import Qt, QRectF, Signal, QPointF
 from PySide6.QtGui import QFont, QColor, QBrush, QPainter, QPixmap, QTransform, QTextCursor, QTextCharFormat
+import html # html 모듈 추가
 
 from typing import List, Tuple, Optional, Dict
 
@@ -12,7 +13,8 @@ from typing import List, Tuple, Optional, Dict
 class SegmentViewData:
     def __init__(self, segment_id: str, text: str, rect: Tuple[float, float, float, float],
                  font_family: str, font_size: int, font_color: str,
-                 is_bold: bool, is_italic: bool, is_highlighted: bool):
+                 is_bold: bool, is_italic: bool, is_highlighted: bool,
+                 link_uri: Optional[str] = None):
         self.segment_id = segment_id
         self.text = text
         self.rect = QRectF(rect[0], rect[1], rect[2], rect[3])
@@ -22,6 +24,7 @@ class SegmentViewData:
         self.is_bold = is_bold
         self.is_italic = is_italic
         self.is_highlighted = is_highlighted
+        self.link_uri = link_uri
 
 class HighlightUpdateInfo:
     def __init__(self, segments_to_update: Dict[str, bool]):
@@ -53,6 +56,7 @@ class PdfViewWidget(QWidget):
     # 뷰 동기화를 위한 시그널
     zoom_in_requested = Signal()
     zoom_out_requested = Signal()
+    linkClicked = Signal(str) # linkClicked 시그널 추가
 
     def __init__(self, view_context: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -112,14 +116,26 @@ class PdfViewWidget(QWidget):
             self.fit_to_view()
             return
         for segment_data in segments:
-            text_item = QGraphicsTextItem(segment_data.text) # 텍스트 아이템 생성
+            text_item = QGraphicsTextItem() # QGraphicsTextItem 생성
 
             # 폰트 및 색상 설정
             font = QFont(segment_data.font_family, segment_data.font_size)
             font.setBold(segment_data.is_bold)
             font.setItalic(segment_data.is_italic)
             text_item.setFont(font)
-            text_item.setDefaultTextColor(segment_data.font_color)
+
+            if segment_data.link_uri:
+                # 링크가 있는 경우, HTML로 설정하고 상호작용 활성화
+                escaped_text = html.escape(segment_data.text)
+                html_content = f'<a href="{segment_data.link_uri}" style="color:blue; text-decoration:underline;">{escaped_text}</a>'
+                text_item.setHtml(html_content)
+                text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+                text_item.setOpenExternalLinks(False)  # 우리가 직접 처리
+                text_item.linkActivated.connect(self._on_link_activated) # 링크 활성화 시그널 연결
+            else:
+                # 일반 텍스트
+                text_item.setPlainText(segment_data.text)
+                text_item.setDefaultTextColor(segment_data.font_color)
 
             # 텍스트 아이템의 자연스러운 크기를 얻음 (자동 줄바꿈 없이)
             natural_rect = text_item.boundingRect()
@@ -144,8 +160,10 @@ class PdfViewWidget(QWidget):
             transform.translate(-natural_rect.left(), -natural_rect.top())
             text_item.setTransform(transform)
 
-            text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-            text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            # 링크가 아닌 경우에만 선택 비활성화
+            if not segment_data.link_uri:
+                text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False) # 이동은 항상 비활성화
             self.graphics_scene.addItem(text_item)
             
             # 텍스트 아이템에 하이라이트 적용
@@ -188,6 +206,9 @@ class PdfViewWidget(QWidget):
         segment_id = self.get_segment_id_at_pos(event.pos().x(), event.pos().y())
         self.segmentHovered.emit(self.view_context, segment_id)
         super(QGraphicsView, self.graphics_view).mouseMoveEvent(event)
+
+    def _on_link_activated(self, link: str):
+        self.linkClicked.emit(link) # linkClicked 시그널 방출
 
     def _custom_wheel_event(self, event):
         """
