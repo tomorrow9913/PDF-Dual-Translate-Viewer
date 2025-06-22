@@ -209,6 +209,10 @@ class MainWindow(QMainWindow):
         self.original_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
         self.translated_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
 
+        # 드래그&드롭 파일 열기 시그널 연결
+        self.original_pdf_widget.fileDropped.connect(self._open_pdf_file_path)
+        self.translated_pdf_widget.fileDropped.connect(self._open_pdf_file_path)
+
         # 줌 동기화 시그널 연결
         self.original_pdf_widget.zoom_in_requested.connect(self.translated_pdf_widget.zoom_in)
         self.original_pdf_widget.zoom_out_requested.connect(self.translated_pdf_widget.zoom_out)

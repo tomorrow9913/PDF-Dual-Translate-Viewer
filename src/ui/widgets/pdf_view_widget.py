@@ -57,6 +57,7 @@ class PdfViewWidget(QWidget):
     zoom_in_requested = Signal()
     zoom_out_requested = Signal()
     linkClicked = Signal(str) # linkClicked 시그널 추가
+    fileDropped = Signal(str)  # PDF 파일 드롭 시그널 추가
 
     def __init__(self, view_context: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -64,6 +65,7 @@ class PdfViewWidget(QWidget):
         self.view_context = view_context
         self._current_segments_on_display: Dict[str, SegmentViewData] = {}
         self._text_items: Dict[str, QGraphicsTextItem] = {}
+        self.setAcceptDrops(True)  # 드래그&드롭 허용
         self._init_ui()
 
     def _init_ui(self):
@@ -254,3 +256,19 @@ class PdfViewWidget(QWidget):
     def zoom_out(self):
         """뷰를 10% 축소합니다."""
         self.graphics_view.scale(1 / 1.1, 1 / 1.1)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith('.pdf'):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith('.pdf'):
+                self.fileDropped.emit(file_path)
+                break
+        event.acceptProposedAction()
