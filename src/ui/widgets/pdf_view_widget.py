@@ -9,6 +9,9 @@ import html # html 모듈 추가
 
 from typing import List, Tuple, Optional, Dict
 from src.infrastructure.dtos.pdf_view_dtos import SegmentViewData, HighlightUpdateInfo, ImageViewData, PageDisplayViewModel
+from .text_segment_item import TextSegmentItem
+from .image_item import ImageItem
+from .highlight_overlay import HighlightOverlay
 
 # --- DTOs (Data Transfer Objects) - 클래스 다이어그램에서 정의된 뷰 모델 활용 ---
 # class SegmentViewData:
@@ -102,76 +105,21 @@ class PdfViewWidget(QWidget):
         for image_data in images:
             if image_data.pixmap.isNull():
                 continue
-            pixmap_item = QGraphicsPixmapItem(image_data.pixmap)
-            pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
-            
-            brect = pixmap_item.boundingRect()
-            if brect.width() > 0 and brect.height() > 0:
-                sx = image_data.rect.width() / brect.width()
-                sy = image_data.rect.height() / brect.height()
-                transform = QTransform().scale(sx, sy)
-                pixmap_item.setTransform(transform)
-            
-            pixmap_item.setPos(image_data.rect.topLeft())
-            self.graphics_scene.addItem(pixmap_item)
+            image_item = ImageItem(image_data)
+            self.graphics_scene.addItem(image_item)
 
         if not segments:
             self.fit_to_view()
             return
         for segment_data in segments:
-            text_item = QGraphicsTextItem() # QGraphicsTextItem 생성
-
-            # 폰트 및 색상 설정
-            font = QFont(segment_data.font_family, segment_data.font_size)
-            font.setBold(segment_data.is_bold)
-            font.setItalic(segment_data.is_italic)
-            text_item.setFont(font)
-
+            # 하이라이트 오버레이 분리 적용
+            if segment_data.is_highlighted:
+                overlay = HighlightOverlay(segment_data.rect)
+                self.graphics_scene.addItem(overlay)
+            text_item = TextSegmentItem(segment_data)
             if segment_data.link_uri:
-                # 링크가 있는 경우, HTML로 설정하고 상호작용 활성화
-                escaped_text = html.escape(segment_data.text)
-                html_content = f'<a href="{segment_data.link_uri}" style="color:blue; text-decoration:underline;">{escaped_text}</a>'
-                text_item.setHtml(html_content)
-                text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-                text_item.setOpenExternalLinks(False)  # 우리가 직접 처리
-                text_item.linkActivated.connect(self._on_link_activated) # 링크 활성화 시그널 연결
-            else:
-                # 일반 텍스트
-                text_item.setPlainText(segment_data.text)
-                text_item.setDefaultTextColor(segment_data.font_color)
-
-            # 텍스트 아이템의 자연스러운 크기를 얻음 (자동 줄바꿈 없이)
-            natural_rect = text_item.boundingRect()
-            target_rect = segment_data.rect
-
-            if natural_rect.width() == 0 or natural_rect.height() == 0:
-                continue
-
-            # 텍스트가 바운딩 박스를 벗어나는 경우에만 크기를 줄이도록 스케일 계산
-            # 텍스트가 늘어나는 것을 방지하기 위해 1.0보다 크게 스케일링하지 않음
-            scale = 1.0
-            # 텍스트의 자연스러운 크기가 목표 사각형보다 클 때만 스케일 조정
-            if natural_rect.width() > target_rect.width() or natural_rect.height() > target_rect.height():
-                scale_x = target_rect.width() / natural_rect.width()
-                scale_y = target_rect.height() / natural_rect.height()
-                scale = min(scale_x, scale_y) # 가로/세로 비율을 유지하며 축소
-
-            # 텍스트를 바운딩 박스의 좌상단에 위치시키고, 필요한 경우 균일하게 축소
-            transform = QTransform()
-            transform.translate(target_rect.left(), target_rect.top())
-            transform.scale(scale, scale)
-            transform.translate(-natural_rect.left(), -natural_rect.top())
-            text_item.setTransform(transform)
-
-            # 링크가 아닌 경우에만 선택 비활성화
-            if not segment_data.link_uri:
-                text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-            text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False) # 이동은 항상 비활성화
+                text_item.linkActivated.connect(self._on_link_activated)
             self.graphics_scene.addItem(text_item)
-            
-            # 텍스트 아이템에 하이라이트 적용
-            self._apply_highlight_format(text_item, segment_data.is_highlighted)
-
             self._text_items[segment_data.segment_id] = text_item
             self._current_segments_on_display[segment_data.segment_id] = segment_data
         # 씬의 크기가 페이지 크기로 고정되었으므로, 뷰를 여기에 맞춥니다.
