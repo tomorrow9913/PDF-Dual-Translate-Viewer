@@ -8,8 +8,10 @@ authors = [
     { name = "Jeong Mingyu", email = "tomorrow9913@gmail.com" },
 ]
 dependencies = [
+    "aiohttp>=3.12.13",
     "pymupdf>=1.26.1",
     "pyside6>=6.9.1",
+    "qasync>=0.27.1",
 ]
 
 [project.scripts]

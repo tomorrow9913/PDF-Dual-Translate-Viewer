@@ -1,15 +1,19 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QPixmap
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
 import fitz  # PyMuPDF
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+import asyncio
+from src.infrastructure.translation.google_translate_async import google_translate
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF 번역기 와이어프레임")
         self.setGeometry(100, 100, 800, 600)
+        self.current_font_size = 10
+        self.auto_translate = False
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -44,8 +48,95 @@ class MainWindow(QMainWindow):
         self.translate_btn.setStyleSheet("background-color: #c0e0c0;")
         self.translate_btn.clicked.connect(self.run_translation)
         toolbar_layout.addWidget(self.translate_btn)
+        # 계속 번역 체크박스
+        self.auto_translate_checkbox = QCheckBox("계속 번역")
+        self.auto_translate_checkbox.stateChanged.connect(self._on_auto_translate_changed)
+        toolbar_layout.addWidget(self.auto_translate_checkbox)
+        # 글자 크기 +, - 버튼
+        self.font_increase_btn = QPushButton("+")
+        self.font_increase_btn.setFixedWidth(28)
+        self.font_increase_btn.clicked.connect(self.increase_font_size)
+        toolbar_layout.addWidget(self.font_increase_btn)
+        self.font_decrease_btn = QPushButton("-")
+        self.font_decrease_btn.setFixedWidth(28)
+        self.font_decrease_btn.clicked.connect(self.decrease_font_size)
+        toolbar_layout.addWidget(self.font_decrease_btn)
         toolbar_layout.addStretch(1)
         self.main_layout.addLayout(toolbar_layout)
+
+    def _on_auto_translate_changed(self, state):
+        self.auto_translate = self.auto_translate_checkbox.isChecked()
+
+    def increase_font_size(self):
+        self.current_font_size = min(self.current_font_size + 2, 48)
+        self._refresh_current_page_views()
+
+    def decrease_font_size(self):
+        self.current_font_size = max(self.current_font_size - 2, 6)
+        self._refresh_current_page_views()
+
+    def _refresh_current_page_views(self):
+        # 현재 페이지를 폰트 크기 반영해서 다시 그림 (번역 상태 유지)
+        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+            return
+        page = self._current_pdf[self._current_page]
+        page_rect = page.rect
+        # 원본 세그먼트 추출
+        segments = []
+        for block in page.get_text("dict")['blocks']:
+            if block['type'] != 0:
+                continue
+            for line in block['lines']:
+                for span in line['spans']:
+                    rect = (span['bbox'][0], span['bbox'][1], span['bbox'][2]-span['bbox'][0], span['bbox'][3]-span['bbox'][1])
+                    seg = SegmentViewData(
+                        segment_id=f"orig_{self._current_page}_{span['bbox']}",
+                        text=span['text'],
+                        rect=rect,
+                        font_family=span.get('font', 'Arial'),
+                        font_size=self.current_font_size,
+                        font_color="#000000",
+                        is_bold='bold' in span.get('font', '').lower(),
+                        is_italic='italic' in span.get('font', '').lower(),
+                        is_highlighted=False
+                    )
+                    segments.append(seg)
+        # 번역본 세그먼트 (현재 번역 결과 유지, 없으면 원본)
+        translated_segments = [
+            SegmentViewData(
+                segment_id=seg.segment_id.replace("orig_", "trans_"),
+                text=getattr(self, '_last_translated_texts', {}).get(i, seg.text),
+                rect=seg.rect.getRect(),
+                font_family=seg.font_family,
+                font_size=self.current_font_size,
+                font_color=seg.font_color.name(),
+                is_bold=seg.is_bold,
+                is_italic=seg.is_italic,
+                is_highlighted=seg.is_highlighted
+            ) for i, seg in enumerate(segments)
+        ]
+        # 이미지 추출
+        image_views = []
+        for img_info in page.get_images(full=True):
+            xref = img_info[0]
+            base_image = self._current_pdf.extract_image(xref)
+            if not base_image:
+                continue
+            image_bytes = base_image["image"]
+            pixmap = QPixmap()
+            pixmap.loadFromData(image_bytes)
+            img_rect = page.get_image_bbox(img_info)
+            if not pixmap.isNull() and img_rect.is_valid:
+                image_views.append(ImageViewData(pixmap=pixmap, rect=QRectF(img_rect.x0, img_rect.y0, img_rect.width, img_rect.height)))
+        view_model = PageDisplayViewModel(
+            page_number=self._current_page+1,
+            page_width=page_rect.width,
+            page_height=page_rect.height,
+            original_segments_view=segments,
+            translated_segments_view=translated_segments,
+            image_views=image_views
+        )
+        self.display_page(view_model)
 
     def _create_main_views(self):
         view_area_layout = QHBoxLayout()
@@ -266,7 +357,10 @@ class MainWindow(QMainWindow):
             self._current_pdf = doc
             self._current_pdf_path = file_path
             self._current_page = 0
-            self._show_pdf_page(0)
+            if self.auto_translate:
+                asyncio.create_task(self._run_translation_async())
+            else:
+                self._show_pdf_page(0)
         except Exception as e:
             QMessageBox.critical(self, "PDF 열기 오류", f"PDF 파일을 열 수 없습니다.\n{e}")
 
@@ -275,76 +369,81 @@ class MainWindow(QMainWindow):
             return
         if page_number < 0 or page_number >= self._current_pdf.page_count:
             return
-        page = self._current_pdf[page_number]
-        page_rect = page.rect
-
-        # 이미지 추출
-        image_views = []
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            base_image = self._current_pdf.extract_image(xref)
-            if not base_image:
-                continue
-            image_bytes = base_image["image"]
-            pixmap = QPixmap()
-            pixmap.loadFromData(image_bytes)
-            img_rect = page.get_image_bbox(img_info)
-            if not pixmap.isNull() and img_rect.is_valid:
-                image_views.append(ImageViewData(pixmap=pixmap, rect=QRectF(img_rect.x0, img_rect.y0, img_rect.width, img_rect.height)))
-
-        segments = []
-        for block in page.get_text("dict")['blocks']:
-            if block['type'] != 0:
-                continue
-            for line in block['lines']:
-                for span in line['spans']:
-                    rect = (span['bbox'][0], span['bbox'][1], span['bbox'][2]-span['bbox'][0], span['bbox'][3]-span['bbox'][1])
-                    seg = SegmentViewData(
-                        segment_id=f"orig_{page_number}_{span['bbox']}",
-                        text=span['text'],
-                        rect=rect,
-                        font_family=span.get('font', 'Arial'),
-                        font_size=int(span.get('size', 10)),
-                        font_color="#000000",
-                        is_bold='bold' in span.get('font', '').lower(),
-                        is_italic='italic' in span.get('font', '').lower(),
-                        is_highlighted=False
-                    )
-                    segments.append(seg)
-        view_model = PageDisplayViewModel(
-            page_number=page_number+1,
-            page_width=page_rect.width,
-            page_height=page_rect.height,
-            original_segments_view=segments,
-            translated_segments_view=[ # 번역본 뷰를 위한 세그먼트 (ID 접두사 변경)
-                SegmentViewData(
-                    segment_id=seg.segment_id.replace("orig_", "trans_"),
-                    text=seg.text, # 현재는 원본과 동일한 텍스트 사용
-                    rect=seg.rect.getRect(),
-                    font_family=seg.font_family,
-                    font_size=seg.font_size,
-                    font_color=seg.font_color.name(),
-                    is_bold=seg.is_bold,
-                    is_italic=seg.is_italic,
-                    is_highlighted=seg.is_highlighted
-                ) for seg in segments
-            ],
-            image_views=image_views
-        )
-        self.display_page(view_model)
-        # 페이지 입력창/라벨 업데이트
-        self.page_input.setText(str(page_number+1))
-        self.page_count_label.setText(f"/ {self._current_pdf.page_count}")
+        self._current_page = page_number
+        if self.auto_translate:
+            asyncio.create_task(self._run_translation_async())
+        else:
+            page = self._current_pdf[page_number]
+            page_rect = page.rect
+            # 이미지 추출
+            image_views = []
+            for img_info in page.get_images(full=True):
+                xref = img_info[0]
+                base_image = self._current_pdf.extract_image(xref)
+                if not base_image:
+                    continue
+                image_bytes = base_image["image"]
+                pixmap = QPixmap()
+                pixmap.loadFromData(image_bytes)
+                img_rect = page.get_image_bbox(img_info)
+                if not pixmap.isNull() and img_rect.is_valid:
+                    image_views.append(ImageViewData(pixmap=pixmap, rect=QRectF(img_rect.x0, img_rect.y0, img_rect.width, img_rect.height)))
+            segments = []
+            for block in page.get_text("dict")['blocks']:
+                if block['type'] != 0:
+                    continue
+                for line in block['lines']:
+                    for span in line['spans']:
+                        rect = (span['bbox'][0], span['bbox'][1], span['bbox'][2]-span['bbox'][0], span['bbox'][3]-span['bbox'][1])
+                        seg = SegmentViewData(
+                            segment_id=f"orig_{page_number}_{span['bbox']}",
+                            text=span['text'],
+                            rect=rect,
+                            font_family=span.get('font', 'Arial'),
+                            font_size=self.current_font_size,
+                            font_color="#000000",
+                            is_bold='bold' in span.get('font', '').lower(),
+                            is_italic='italic' in span.get('font', '').lower(),
+                            is_highlighted=False
+                        )
+                        segments.append(seg)
+            view_model = PageDisplayViewModel(
+                page_number=page_number+1,
+                page_width=page_rect.width,
+                page_height=page_rect.height,
+                original_segments_view=segments,
+                translated_segments_view=[
+                    SegmentViewData(
+                        segment_id=seg.segment_id.replace("orig_", "trans_"),
+                        text=seg.text,
+                        rect=seg.rect.getRect(),
+                        font_family=seg.font_family,
+                        font_size=self.current_font_size,
+                        font_color=seg.font_color.name(),
+                        is_bold=seg.is_bold,
+                        is_italic=seg.is_italic,
+                        is_highlighted=seg.is_highlighted
+                    ) for seg in segments
+                ],
+                image_views=image_views
+            )
+            self.display_page(view_model)
+            self.page_input.setText(str(page_number+1))
+            self.page_count_label.setText(f"/ {self._current_pdf.page_count}")
 
     def run_translation(self):
-        # 실제 번역 API 연동 대신 예시로 각 세그먼트 텍스트 앞에 "번역됨: " 추가
+        """
+        '번역 실행' 버튼에 연결된 슬롯. 비동기 번역 작업을 시작합니다.
+        qasync에 의해 관리되는 이벤트 루프에서 실행됩니다.
+        """
+        asyncio.create_task(self._run_translation_async())
+
+    async def _run_translation_async(self):
         if not hasattr(self, '_current_pdf') or self._current_pdf is None:
             QMessageBox.warning(self, "경고", "먼저 PDF 파일을 열어주세요.")
             return
         page = self._current_pdf[self._current_page]
         page_rect = page.rect
-
-        # 원본 세그먼트 추출
         segments = []
         for block in page.get_text("dict")['blocks']:
             if block['type'] != 0:
@@ -357,27 +456,30 @@ class MainWindow(QMainWindow):
                         text=span['text'],
                         rect=rect,
                         font_family=span.get('font', 'Arial'),
-                        font_size=int(span.get('size', 10)),
+                        font_size=self.current_font_size,
                         font_color="#000000",
                         is_bold='bold' in span.get('font', '').lower(),
                         is_italic='italic' in span.get('font', '').lower(),
                         is_highlighted=False
                     )
                     segments.append(seg)
+        # 번역 (병렬 처리)
+        tasks = [google_translate(seg.text, source='auto', target='ko') for seg in segments]
+        translated_texts = await asyncio.gather(*tasks)
 
-        # 번역본 세그먼트 생성 (여기서 실제 번역 API를 호출해도 됨)
+        self._last_translated_texts = {i: t for i, t in enumerate(translated_texts)}
         translated_segments = [
             SegmentViewData(
                 segment_id=seg.segment_id.replace("orig_", "trans_"),
-                text="번역됨: " + seg.text,  # 실제 번역 결과로 대체
+                text=translated_texts[i] if translated_texts[i] else seg.text,
                 rect=seg.rect.getRect(),
                 font_family=seg.font_family,
-                font_size=seg.font_size,
+                font_size=self.current_font_size,
                 font_color=seg.font_color.name(),
                 is_bold=seg.is_bold,
                 is_italic=seg.is_italic,
                 is_highlighted=seg.is_highlighted
-            ) for seg in segments
+            ) for i, seg in enumerate(segments)
         ]
 
         # 이미지 추출
