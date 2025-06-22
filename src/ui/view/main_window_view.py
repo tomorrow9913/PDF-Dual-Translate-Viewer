@@ -20,6 +20,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PDF 번역기 - 듀얼 뷰어")
         self.setGeometry(100, 100, 800, 600)
         self.auto_translate = False
+        self.pdf_preview_dialog = None # 미리보기 다이얼로그 참조
         self._current_view_model = None
         self.sidebar_visible = False
         self.controller = PdfController()  # 컨트롤러 인스턴스 생성
@@ -508,6 +509,8 @@ class MainWindow(QMainWindow):
         if self.auto_translate:
             import asyncio
             asyncio.create_task(self._run_translation_async())
+        
+        self._update_pdf_preview_content() # 미리보기 창 내용 업데이트
 
     def run_translation(self):
         """
@@ -597,18 +600,28 @@ class MainWindow(QMainWindow):
         except Exception:
             self.thumbnail_label.setVisible(False)
 
-    def _show_pdf_modal(self, event):
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+    def _on_preview_closed(self):
+        """미리보기 다이얼로그가 닫힐 때 참조를 정리하는 슬롯."""
+        self.pdf_preview_dialog = None
+
+    def _update_pdf_preview_content(self):
+        """미리보기 다이얼로그가 열려있으면 내용을 업데이트합니다."""
+        if not self.pdf_preview_dialog or not self.pdf_preview_dialog.isVisible() or not hasattr(self, '_current_pdf') or self._current_pdf is None:
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("원본 PDF 전체 보기")
-        dialog.setModal(True)
-        dialog.resize(800, 1000)
-        scroll = QScrollArea(dialog)
-        scroll.setWidgetResizable(True)
-        container = QWidget()
-        vbox = QVBoxLayout(container)
-        # 현재 페이지부터 최대 10페이지까지 미리보기
+
+        scroll_area = self.pdf_preview_dialog.findChild(QScrollArea)
+        if not scroll_area: return
+        container = scroll_area.widget()
+        if not container: return
+        layout = container.layout()
+
+        # 기존 위젯들 제거
+        while layout.count():
+            child = layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # 새로운 페이지 이미지들로 채우기
         start = self._current_page
         end = min(self._current_page + 10, self._current_pdf.page_count)
         for i in range(start, end):
@@ -617,9 +630,30 @@ class MainWindow(QMainWindow):
             img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
             label = QLabel()
             label.setPixmap(QPixmap.fromImage(img))
-            vbox.addWidget(label)
-        scroll.setWidget(container)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(scroll)
-        dialog.setLayout(layout)
-        dialog.exec()
+            layout.addWidget(label)
+
+    def _show_pdf_modal(self, event):
+        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+            return
+
+        # 다이얼로그가 없으면 새로 생성
+        if self.pdf_preview_dialog is None:
+            self.pdf_preview_dialog = QDialog(self)
+            self.pdf_preview_dialog.setWindowTitle("원본 PDF 전체 보기")
+            self.pdf_preview_dialog.resize(800, 1000)
+
+            dialog_layout = QVBoxLayout(self.pdf_preview_dialog)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            dialog_layout.addWidget(scroll)
+
+            container = QWidget()
+            vbox = QVBoxLayout(container)
+            scroll.setWidget(container)
+            
+            self.pdf_preview_dialog.finished.connect(self._on_preview_closed)
+
+        self._update_pdf_preview_content()
+        self.pdf_preview_dialog.show()
+        self.pdf_preview_dialog.raise_()
+        self.pdf_preview_dialog.activateWindow()
