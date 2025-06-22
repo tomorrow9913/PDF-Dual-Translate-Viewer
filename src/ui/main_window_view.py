@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
         self.controller = PdfController()  # 컨트롤러 인스턴스 생성
         # self.outline_tree와 self.sidebar를 항상 생성
         self.outline_tree = QTreeWidget()
-        self.outline_tree.setHeaderLabels(["Title"])
+        self.outline_tree.setHeaderLabels(["목차"])
         self.outline_tree.itemClicked.connect(self._on_outline_item_clicked)
         self.sidebar = QDockWidget("PDF 목차", self)
         self.sidebar.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)

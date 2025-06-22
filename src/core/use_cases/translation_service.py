@@ -1,15 +1,17 @@
 import asyncio
-from src.infrastructure.translation.google_translate_async import google_translate
+from src.infrastructure.gateways.translation_gateway import TranslationGateway
 from src.ui.widgets.pdf_view_widget import SegmentViewData
 
 class TranslationService:
-    @staticmethod
-    async def translate_segments(segments, source_lang, target_lang):
+    def __init__(self, gateway: TranslationGateway):
+        self.gateway = gateway
+
+    async def translate_segments(self, segments, source_lang, target_lang):
         """
         SegmentViewData 리스트를 받아 번역 결과를 반환
         """
         texts_to_translate = [seg.text for seg in segments]
-        tasks = [google_translate(text, source=source_lang, target=target_lang) for text in texts_to_translate]
+        tasks = [self.gateway.translate(text, source_lang, target_lang) for text in texts_to_translate]
         translated_texts = await asyncio.gather(*tasks)
         return translated_texts
 

@@ -4,10 +4,22 @@ from src.core.use_cases.pdf_page_service import PdfPageService
 from src.common.constants import LANGUAGES
 
 class PdfController:
-    def __init__(self, pdf_doc=None):
+    def __init__(self, pdf_doc=None, translation_service=None, pdf_parser=None):
         self.pdf_doc = pdf_doc
         self.current_page = 0
         self.view_model = None
+        # TranslationService 인스턴스 주입(없으면 기본 GoogleTranslationGateway 사용)
+        if translation_service is not None:
+            self.translation_service = translation_service
+        else:
+            from src.infrastructure.gateways.google_translation_gateway import GoogleTranslationGateway
+            self.translation_service = TranslationService(GoogleTranslationGateway())
+        # PDF 파서 주입(없으면 기본 FitzPdfParserGateway 사용)
+        if pdf_parser is not None:
+            self.pdf_parser = pdf_parser
+        else:
+            from src.infrastructure.gateways.fitz_pdf_parser_gateway import FitzPdfParserGateway
+            self.pdf_parser = FitzPdfParserGateway()
 
     def open_pdf(self, file_path):
         import fitz
@@ -20,15 +32,15 @@ class PdfController:
             return None
         page = self.pdf_doc[page_number]
         self.current_page = page_number
-        self.view_model = PdfParsingService.parse_page(page, page_number, self.pdf_doc)
+        self.view_model = self.pdf_parser.parse_page(page, page_number, self.pdf_doc)
         return self.view_model
 
     async def translate_current_page(self, source_lang, target_lang):
         if not self.view_model:
             return None
         original_segments = self.view_model.original_segments_view
-        translated_texts = await TranslationService.translate_segments(original_segments, source_lang, target_lang)
-        translated_segments = TranslationService.build_translated_segments(original_segments, translated_texts)
+        translated_texts = await self.translation_service.translate_segments(original_segments, source_lang, target_lang)
+        translated_segments = self.translation_service.build_translated_segments(original_segments, translated_texts)
         self.view_model.translated_segments_view = translated_segments
         return translated_segments
 
