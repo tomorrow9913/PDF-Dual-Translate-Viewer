@@ -25,26 +25,26 @@ src/
 main.py               # Application entry point
 pyproject.toml        # Dependencies & settings
 README.md             # English documentation
-readme_ko.md          # Korean documentation
+README_ko.md          # Korean documentation
 ```
 
 ## 🚀 How to Run
 
 1. Install [uv](https://github.com/astral-sh/uv) (a fast Python package manager)
-2. Install dependencies:
+2. Add dependencies:
    ```cmd
-   uv pip install -r requirements.txt
+   uv add pyside6 pymupdf
    ```
 3. Run the app:
    ```cmd
-   uv venv exec python main.py
+   uv run main.py
    ```
 
 ## ✨ Features
 - Open PDF files and display in dual view (original/translated)
 - Page navigation and direct page input
 - Synchronized highlighting (both views)
-- Translation API integration (planned)
+- Translation API integration
 - Style/layout preservation, image rendering
 - Clean architecture structure
 
