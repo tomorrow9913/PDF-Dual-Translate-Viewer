@@ -12,13 +12,13 @@ class PdfController:
         if translation_service is not None:
             self.translation_service = translation_service
         else:
-            from src.infrastructure.gateways.google_translation_gateway import GoogleTranslationGateway
+            from src.adapters.gateways.google_translation_gateway import GoogleTranslationGateway
             self.translation_service = TranslationService(GoogleTranslationGateway())
         # PDF 파서 주입(없으면 기본 FitzPdfParserGateway 사용)
         if pdf_parser is not None:
             self.pdf_parser = pdf_parser
         else:
-            from src.infrastructure.gateways.fitz_pdf_parser_gateway import FitzPdfParserGateway
+            from src.adapters.gateways.fitz_pdf_parser_gateway import FitzPdfParserGateway
             self.pdf_parser = FitzPdfParserGateway()
 
     def open_pdf(self, file_path):

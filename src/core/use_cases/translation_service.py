@@ -1,5 +1,5 @@
 import asyncio
-from src.infrastructure.gateways.translation_gateway import TranslationGateway
+from src.adapters.gateways.translation_gateway import TranslationGateway
 from src.ui.widgets.pdf_view_widget import SegmentViewData
 
 class TranslationService:
