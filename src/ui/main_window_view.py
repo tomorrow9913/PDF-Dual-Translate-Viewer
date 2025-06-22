@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl
 from PySide6.QtGui import QPixmap
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
@@ -6,6 +6,81 @@ import fitz  # PyMuPDF
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 import asyncio
 from src.infrastructure.translation.google_translate_async import google_translate
+
+LANGUAGES = {
+    "auto": "Auto Detect",
+    "en": "English",
+    "ko": "Korean",
+    "ja": "Japanese",
+    "zh-CN": "Chinese (Simplified)",
+    "zh-TW": "Chinese (Traditional)",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "ru": "Russian",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "vi": "Vietnamese",
+    "id": "Indonesian",
+    "th": "Thai",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "nl": "Dutch",
+    "sv": "Swedish",
+    "fi": "Finnish",
+    "no": "Norwegian",
+    "da": "Danish",
+    "cs": "Czech",
+    "hu": "Hungarian",
+    "he": "Hebrew",
+    "el": "Greek",
+    "ro": "Romanian",
+    "sk": "Slovak",
+    "uk": "Ukrainian",
+    "bg": "Bulgarian",
+    "hr": "Croatian",
+    "sr": "Serbian",
+    "fa": "Persian",
+    "ms": "Malay",
+    "tl": "Tagalog",
+    "et": "Estonian",
+    "lv": "Latvian",
+    "lt": "Lithuanian",
+    "sl": "Slovenian",
+    "mt": "Maltese",
+    "ga": "Irish",
+    "sq": "Albanian",
+    "mk": "Macedonian",
+    "af": "Afrikaans",
+    "sw": "Swahili",
+    "zu": "Zulu",
+    "xh": "Xhosa",
+    "st": "Southern Sotho",
+    "tn": "Tswana",
+    "ts": "Tsonga",
+    "ss": "Swati",
+    "ve": "Venda",
+    "nr": "South Ndebele",
+    "nso": "Northern Sotho",
+    "kg": "Kongo",
+    "rw": "Kinyarwanda",
+    "so": "Somali",
+    "yo": "Yoruba",
+    "ig": "Igbo",
+    "ha": "Hausa",
+    "am": "Amharic",
+    "om": "Oromo",
+    "ti": "Tigrinya",
+    "sn": "Shona",
+    "ny": "Chichewa",
+    "mg": "Malagasy",
+    "rn": "Kirundi",
+    "ln": "Lingala",
+    "lu": "Luba-Katanga",
+    "to": "Tonga",
+}
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -41,16 +116,26 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(file_open_btn)
         toolbar_layout.addSpacing(10)
         toolbar_layout.addWidget(QLabel("원본 언어:"))
-        original_lang_combo = QLineEdit("자동 감지")
-        original_lang_combo.setReadOnly(True)
-        original_lang_combo.setFixedWidth(80)
-        toolbar_layout.addWidget(original_lang_combo)
+        self.original_lang_combo = QComboBox()
+        for code, name in LANGUAGES.items():
+            self.original_lang_combo.addItem(f"{name} ({code})", code)
+        self.original_lang_combo.setCurrentIndex(0)
+        self.original_lang_combo.setEditable(True)
+        self.original_lang_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.original_lang_combo.setFixedWidth(180)
+        self.original_lang_combo.lineEdit().textEdited.connect(lambda text: self._filter_combo(self.original_lang_combo, text))
+        toolbar_layout.addWidget(self.original_lang_combo)
         toolbar_layout.addSpacing(20)
         toolbar_layout.addWidget(QLabel("번역 언어:"))
-        target_lang_combo = QLineEdit("한국어")
-        target_lang_combo.setReadOnly(True)
-        target_lang_combo.setFixedWidth(80)
-        toolbar_layout.addWidget(target_lang_combo)
+        self.target_lang_combo = QComboBox()
+        for code, name in LANGUAGES.items():
+            self.target_lang_combo.addItem(f"{name} ({code})", code)
+        self.target_lang_combo.setCurrentIndex(list(LANGUAGES.keys()).index("ko"))
+        self.target_lang_combo.setEditable(True)
+        self.target_lang_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.target_lang_combo.setFixedWidth(180)
+        self.target_lang_combo.lineEdit().textEdited.connect(lambda text: self._filter_combo(self.target_lang_combo, text))
+        toolbar_layout.addWidget(self.target_lang_combo)
         self.translate_btn = QPushButton("번역 실행")
         self.translate_btn.setStyleSheet("background-color: #c0e0c0;")
         self.translate_btn.clicked.connect(self.run_translation)
@@ -452,7 +537,9 @@ class MainWindow(QMainWindow):
         try:
             # 1. 번역 실행
             texts_to_translate = [seg.text for seg in original_segments]
-            tasks = [google_translate(text, source='auto', target='ko') for text in texts_to_translate]
+            source_lang = self.original_lang_combo.currentData()
+            target_lang = self.target_lang_combo.currentData()
+            tasks = [google_translate(text, source=source_lang, target=target_lang) for text in texts_to_translate]
             translated_texts = await asyncio.gather(*tasks)
             self._last_translated_texts = {i: t for i, t in enumerate(translated_texts)}
 
@@ -474,7 +561,6 @@ class MainWindow(QMainWindow):
             # 3. 현재 뷰 모델에서 이미지와 페이지 크기 정보 가져오기
             if not self._current_view_model:
                 return
-            
             image_views = self._current_view_model.image_views
             page_width = self._current_view_model.page_width
             page_height = self._current_view_model.page_height
@@ -486,7 +572,6 @@ class MainWindow(QMainWindow):
                 page_width,
                 page_height
             )
-            
             # 5. 현재 뷰 모델의 번역본 데이터도 업데이트 (일관성 유지)
             self._current_view_model.translated_segments_view = translated_segments
 
@@ -494,3 +579,13 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}")
         finally:
             self.progress_bar.setVisible(False)
+
+    def _filter_combo(self, combo, text):
+        # 입력값이 코드/이름에 포함된 첫 항목을 선택
+        text = text.strip().lower()
+        for i in range(combo.count()):
+            code = combo.itemData(i)
+            name = combo.itemText(i).lower()
+            if text == code or text in name:
+                combo.setCurrentIndex(i)
+                return
