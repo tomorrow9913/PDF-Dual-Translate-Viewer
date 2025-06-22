@@ -12,7 +12,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("PDF 번역기 와이어프레임")
         self.setGeometry(100, 100, 800, 600)
-        self.current_font_size = 10
         self.auto_translate = False
 
         self.main_widget = QWidget()
@@ -74,75 +73,12 @@ class MainWindow(QMainWindow):
         self.auto_translate = self.auto_translate_checkbox.isChecked()
 
     def increase_font_size(self):
-        self.current_font_size = min(self.current_font_size + 2, 48)
-        self._refresh_current_page_views()
+        self.original_pdf_widget.zoom_in()
+        self.translated_pdf_widget.zoom_in()
 
     def decrease_font_size(self):
-        self.current_font_size = max(self.current_font_size - 2, 6)
-        self._refresh_current_page_views()
-
-    def _refresh_current_page_views(self):
-        # 현재 페이지를 폰트 크기 반영해서 다시 그림 (번역 상태 유지)
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
-            return
-        page = self._current_pdf[self._current_page]
-        page_rect = page.rect
-        # 원본 세그먼트 추출
-        segments = []
-        for block in page.get_text("dict")['blocks']:
-            if block['type'] != 0:
-                continue
-            for line in block['lines']:
-                for span in line['spans']:
-                    rect = (span['bbox'][0], span['bbox'][1], span['bbox'][2]-span['bbox'][0], span['bbox'][3]-span['bbox'][1])
-                    seg = SegmentViewData(
-                        segment_id=f"orig_{self._current_page}_{span['bbox']}",
-                        text=span['text'],
-                        rect=rect,
-                        font_family=span.get('font', 'Arial'),
-                        font_size=self.current_font_size,
-                        font_color="#000000",
-                        is_bold='bold' in span.get('font', '').lower(),
-                        is_italic='italic' in span.get('font', '').lower(),
-                        is_highlighted=False
-                    )
-                    segments.append(seg)
-        # 번역본 세그먼트 (현재 번역 결과 유지, 없으면 원본)
-        translated_segments = [
-            SegmentViewData(
-                segment_id=seg.segment_id.replace("orig_", "trans_"),
-                text=getattr(self, '_last_translated_texts', {}).get(i, seg.text),
-                rect=seg.rect.getRect(),
-                font_family=seg.font_family,
-                font_size=self.current_font_size,
-                font_color=seg.font_color.name(),
-                is_bold=seg.is_bold,
-                is_italic=seg.is_italic,
-                is_highlighted=seg.is_highlighted
-            ) for i, seg in enumerate(segments)
-        ]
-        # 이미지 추출
-        image_views = []
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            base_image = self._current_pdf.extract_image(xref)
-            if not base_image:
-                continue
-            image_bytes = base_image["image"]
-            pixmap = QPixmap()
-            pixmap.loadFromData(image_bytes)
-            img_rect = page.get_image_bbox(img_info)
-            if not pixmap.isNull() and img_rect.is_valid:
-                image_views.append(ImageViewData(pixmap=pixmap, rect=QRectF(img_rect.x0, img_rect.y0, img_rect.width, img_rect.height)))
-        view_model = PageDisplayViewModel(
-            page_number=self._current_page+1,
-            page_width=page_rect.width,
-            page_height=page_rect.height,
-            original_segments_view=segments,
-            translated_segments_view=translated_segments,
-            image_views=image_views
-        )
-        self.display_page(view_model)
+        self.original_pdf_widget.zoom_out()
+        self.translated_pdf_widget.zoom_out()
 
     def _create_main_views(self):
         view_area_layout = QHBoxLayout()
@@ -167,6 +103,12 @@ class MainWindow(QMainWindow):
         self.main_layout.addLayout(view_area_layout, 1)  # stretch factor를 1로 설정하여 이 레이아웃이 수직 공간을 채우도록 함
         self.original_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
         self.translated_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
+
+        # 줌 동기화 시그널 연결
+        self.original_pdf_widget.zoom_in_requested.connect(self.translated_pdf_widget.zoom_in)
+        self.original_pdf_widget.zoom_out_requested.connect(self.translated_pdf_widget.zoom_out)
+        self.translated_pdf_widget.zoom_in_requested.connect(self.original_pdf_widget.zoom_in)
+        self.translated_pdf_widget.zoom_out_requested.connect(self.original_pdf_widget.zoom_out)
 
     def _setup_scroll_sync(self):
         """두 PDF 뷰의 스크롤바를 동기화합니다."""
@@ -406,7 +348,7 @@ class MainWindow(QMainWindow):
                             text=span['text'],
                             rect=rect,
                             font_family=span.get('font', 'Arial'),
-                            font_size=self.current_font_size,
+                            font_size=span['size'],
                             font_color="#000000",
                             is_bold='bold' in span.get('font', '').lower(),
                             is_italic='italic' in span.get('font', '').lower(),
@@ -424,7 +366,7 @@ class MainWindow(QMainWindow):
                         text=seg.text,
                         rect=seg.rect.getRect(),
                         font_family=seg.font_family,
-                        font_size=self.current_font_size,
+                        font_size=seg.font_size,
                         font_color=seg.font_color.name(),
                         is_bold=seg.is_bold,
                         is_italic=seg.is_italic,
@@ -465,7 +407,7 @@ class MainWindow(QMainWindow):
                         text=span['text'],
                         rect=rect,
                         font_family=span.get('font', 'Arial'),
-                        font_size=self.current_font_size,
+                        font_size=span['size'],
                         font_color="#000000",
                         is_bold='bold' in span.get('font', '').lower(),
                         is_italic='italic' in span.get('font', '').lower(),
@@ -483,7 +425,7 @@ class MainWindow(QMainWindow):
                 text=translated_texts[i] if translated_texts[i] else seg.text,
                 rect=seg.rect.getRect(),
                 font_family=seg.font_family,
-                font_size=self.current_font_size,
+                font_size=seg.font_size,
                 font_color=seg.font_color.name(),
                 is_bold=seg.is_bold,
                 is_italic=seg.is_italic,

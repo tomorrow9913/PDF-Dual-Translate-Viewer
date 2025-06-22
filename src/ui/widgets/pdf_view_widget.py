@@ -50,6 +50,9 @@ class PdfViewWidget(QWidget):
     단일 PDF 페이지를 렌더링하고 텍스트 세그먼트 상호작용을 처리하는 위젯.
     """
     segmentHovered = Signal(str, object)
+    # 뷰 동기화를 위한 시그널
+    zoom_in_requested = Signal()
+    zoom_out_requested = Signal()
 
     def __init__(self, view_context: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -68,6 +71,7 @@ class PdfViewWidget(QWidget):
         self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.graphics_view.setDragMode(QGraphicsView.NoDrag)
         self.graphics_view.setMouseTracking(True)
+        self.graphics_view.wheelEvent = self._custom_wheel_event
         self.graphics_view.mouseMoveEvent = self._custom_mouse_move_event
         self.graphics_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.layout.addWidget(self.graphics_view)
@@ -124,13 +128,19 @@ class PdfViewWidget(QWidget):
             if natural_rect.width() == 0 or natural_rect.height() == 0:
                 continue
 
-            # PDF의 바운딩 박스에 맞게 텍스트 아이템을 스케일링하고 위치시키는 변환(Transform) 생성
-            scale_x = target_rect.width() / natural_rect.width()
-            scale_y = target_rect.height() / natural_rect.height()
+            # 텍스트가 바운딩 박스를 벗어나는 경우에만 크기를 줄이도록 스케일 계산
+            # 텍스트가 늘어나는 것을 방지하기 위해 1.0보다 크게 스케일링하지 않음
+            scale = 1.0
+            # 텍스트의 자연스러운 크기가 목표 사각형보다 클 때만 스케일 조정
+            if natural_rect.width() > target_rect.width() or natural_rect.height() > target_rect.height():
+                scale_x = target_rect.width() / natural_rect.width()
+                scale_y = target_rect.height() / natural_rect.height()
+                scale = min(scale_x, scale_y) # 가로/세로 비율을 유지하며 축소
 
+            # 텍스트를 바운딩 박스의 좌상단에 위치시키고, 필요한 경우 균일하게 축소
             transform = QTransform()
             transform.translate(target_rect.left(), target_rect.top())
-            transform.scale(scale_x, scale_y)
+            transform.scale(scale, scale)
             transform.translate(-natural_rect.left(), -natural_rect.top())
             text_item.setTransform(transform)
 
@@ -179,12 +189,35 @@ class PdfViewWidget(QWidget):
         self.segmentHovered.emit(self.view_context, segment_id)
         super(QGraphicsView, self.graphics_view).mouseMoveEvent(event)
 
-    def resizeEvent(self, event):
+    def _custom_wheel_event(self, event):
         """
-        위젯 크기가 변경될 때 뷰를 업데이트하여 콘텐츠가 뷰에 맞도록 조정합니다.
+        마우스 휠 이벤트를 처리합니다.
+        - Ctrl + 휠: 뷰 확대/축소
+        - Shift + 휠: 좌우 스크롤
+        - 일반 휠: 상하 스크롤
         """
-        super().resizeEvent(event)
-        self.fit_to_view()
+        modifiers = event.modifiers()
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+            if event.angleDelta().y() > 0:
+                self.graphics_view.scale(1.1, 1.1)
+                self.zoom_in_requested.emit()
+            else:
+                self.graphics_view.scale(1 / 1.1, 1 / 1.1)
+                self.zoom_out_requested.emit()
+            self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+            event.accept()
+        elif modifiers == Qt.KeyboardModifier.ShiftModifier:
+            h_scroll = self.graphics_view.horizontalScrollBar()
+            # 휠 한 번에 3 스텝씩 이동하도록 설정
+            steps_to_scroll = h_scroll.singleStep() * 3
+            if event.angleDelta().y() < 0:  # 아래로 스크롤 -> 오른쪽으로 이동
+                h_scroll.setValue(h_scroll.value() + steps_to_scroll)
+            else:  # 위로 스크롤 -> 왼쪽으로 이동
+                h_scroll.setValue(h_scroll.value() - steps_to_scroll)
+            event.accept()
+        else:
+            super(QGraphicsView, self.graphics_view).wheelEvent(event)
 
     def fit_to_view(self):
         """
@@ -192,3 +225,11 @@ class PdfViewWidget(QWidget):
         """
         if not self.graphics_scene.sceneRect().isEmpty():
             self.graphics_view.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def zoom_in(self):
+        """뷰를 10% 확대합니다."""
+        self.graphics_view.scale(1.1, 1.1)
+
+    def zoom_out(self):
+        """뷰를 10% 축소합니다."""
+        self.graphics_view.scale(1 / 1.1, 1 / 1.1)
