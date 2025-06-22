@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem
-from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication
+from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl, QEvent
 from PySide6.QtGui import QPixmap
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
 import fitz  # PyMuPDF
@@ -85,7 +85,7 @@ LANGUAGES = {
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PDF 번역기 와이어프레임")
+        self.setWindowTitle("PDF 번역기 - 듀얼 뷰어")
         self.setGeometry(100, 100, 800, 600)
         self.auto_translate = False
         self._current_view_model = None
@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self._create_navigation_bar()
         self._create_status_bar()
         self._load_dummy_data()
+
+        QApplication.instance().installEventFilter(self)
 
     def _create_status_bar(self):
         """창 하단에 상태바(푸터)를 생성합니다."""
@@ -683,3 +685,24 @@ class MainWindow(QMainWindow):
             if text == code or text in name:
                 combo.setCurrentIndex(i)
                 return
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            # 페이지 입력창에 포커스가 있으면 통과
+            if self.page_input and self.page_input.hasFocus():
+                return super().eventFilter(obj, event)
+            if event.key() == Qt.Key_Left:
+                self.go_to_prev_page()
+                return True
+            elif event.key() == Qt.Key_Right:
+                self.go_to_next_page()
+                return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Left:
+            self.go_to_prev_page()
+        elif event.key() == Qt.Key_Right:
+            self.go_to_next_page()
+        else:
+            super().keyPressEvent(event)
