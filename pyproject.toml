@@ -1,0 +1,30 @@
+[project]
+name = "pdf_dual_viewer"
+version = "0.1.0"
+description = "A dual PDF viewer with translation and synchronized highlighting."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Jeong Mingyu", email = "tomorrow9913@gmail.com" },
+]
+dependencies = [
+    "pymupdf>=1.26.1",
+    "pyside6>=6.9.1",
+]
+
+[project.scripts]
+pdf-dual-viewer = "pdf_dual_viewer.main:main" # 메인 실행 스크립트 지정
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "ruff", # Linter & Formatter
+    "mypy", # Type checker (선택)
+]
+
+[tool.ruff]
+# Ruff 설정 (선택)
+line-length = 88
+select = ["E", "F", "W", "I"] # 기본 규칙 + isort
