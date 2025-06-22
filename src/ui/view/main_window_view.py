@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication, QDialog, QScrollArea
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl, QEvent
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtGui import QPixmap, QImage, QDesktopServices
 from src.infrastructure.dtos.pdf_view_dtos import (HighlightUpdateInfo, ImageViewData, PageDisplayViewModel, SegmentViewData)
 from src.ui.widgets.pdf_view_widget import PdfViewWidget
 import fitz  # PyMuPDF
@@ -318,10 +318,15 @@ class MainWindow(QMainWindow):
     def display_page(self, view_model):
         # 프레젠터를 통해 UI 데이터 추출
         page_data = PdfPresenter.present_page(view_model)
+        
         page_width = page_data['page_width']
         page_height = page_data['page_height']
-        self.original_pdf_widget.render_page(page_data['original_segments'], page_data['image_views'], page_width, page_height)
-        self.translated_pdf_widget.render_page(page_data['translated_segments'], page_data['image_views'], page_width, page_height)
+        
+        # 지연 로딩을 위해 pdf_doc 객체를 전달
+        pdf_doc = self._current_pdf if hasattr(self, '_current_pdf') and self._current_pdf else None
+
+        self.original_pdf_widget.render_page(page_data['original_segments'], page_data['image_views'], page_width, page_height, pdf_doc)
+        self.translated_pdf_widget.render_page(page_data['translated_segments'], page_data['image_views'], page_width, page_height, pdf_doc)
         self.page_input.setText(str(page_data['page_number']))
         self._current_view_model = view_model
 
@@ -357,6 +362,9 @@ class MainWindow(QMainWindow):
 
     def _handle_link_click(self, link: str):
         """PDF 뷰의 하이퍼링크 클릭을 처리합니다."""
+        if not link:
+            return
+
         if link.startswith("page:"):
             try:
                 # 내부 페이지 링크 처리
@@ -364,9 +372,29 @@ class MainWindow(QMainWindow):
                 if hasattr(self, '_current_pdf') and 0 <= page_num < self._current_pdf.page_count:
                     self._show_pdf_page(page_num)
                 else:
-                    QMessageBox.warning(self, "잘못된 링크", f"문서에 없는 페이지({page_num + 1})로의 링크입니다.")
+                    self.show_status_message(f"잘못된 링크: 문서에 없는 페이지({page_num + 1})입니다.")
             except (ValueError, IndexError):
-                QMessageBox.warning(self, "잘못된 링크", f"잘못된 내부 링크 형식입니다: {link}")
+                self.show_status_message(f"잘못된 링크 형식: {link}")
+        elif link.startswith("file:"):
+            file_path = link[5:]
+            reply = QMessageBox.question(self, "파일 실행",
+                                         f"다음 파일을 여시겠습니까?\n\n{file_path}\n\n(주의: 알 수 없는 파일을 열면 위험할 수 있습니다.)",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                         QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                if not QDesktopServices.openUrl(QUrl.fromLocalFile(file_path)):
+                    QMessageBox.warning(self, "파일 열기 실패", f"파일을 열 수 없습니다: {file_path}")
+        elif link.startswith("name:"):
+            dest_name = link[5:]
+            if hasattr(self, '_current_pdf') and self._current_pdf:
+                try:
+                    page_num = self._current_pdf.get_page_number_from_name(dest_name)
+                    if page_num != -1:
+                        self._show_pdf_page(page_num)
+                    else:
+                        QMessageBox.warning(self, "잘못된 링크", f"문서에서 '{dest_name}' 목적지를 찾을 수 없습니다.")
+                except Exception as e:
+                    QMessageBox.warning(self, "링크 오류", f"명명된 목적지 링크 처리 중 오류가 발생했습니다: {e}")
         else:
             # 외부 URL 링크 처리
             reply = QMessageBox.question(self, "외부 링크 열기",
@@ -534,12 +562,22 @@ class MainWindow(QMainWindow):
             image_views = self.controller.view_model.image_views
             page_width = self.controller.view_model.page_width
             page_height = self.controller.view_model.page_height
+            pdf_doc = self._current_pdf if hasattr(self, '_current_pdf') else None
+
+            # 원본 PDF 뷰의 현재 변환(확대/축소 및 이동) 상태를 가져옵니다.
+            # 이를 통해 번역된 뷰가 원본 뷰와 동일한 시각적 상태를 유지하도록 합니다.
+            original_view_transform = self.original_pdf_widget.graphics_view.transform()
+
             self.translated_pdf_widget.render_page(
                 translated_segments,
                 image_views,
                 page_width,
-                page_height
+                page_height,
+                pdf_doc
             )
+            # 번역된 뷰에 원본 뷰의 변환 상태를 적용합니다.
+            self.translated_pdf_widget.graphics_view.setTransform(original_view_transform)
+
             self.controller.view_model.translated_segments_view = translated_segments
         except Exception as e:
             QMessageBox.critical(self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}")

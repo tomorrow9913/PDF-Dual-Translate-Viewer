@@ -23,9 +23,13 @@ class HighlightUpdateInfo:
         self.segments_to_update = segments_to_update
 
 class ImageViewData:
-    def __init__(self, pixmap: QPixmap, rect: QRectF):
-        self.pixmap = pixmap
+    def __init__(self, xref: int, rect: QRectF):
+        """
+        지연 로딩을 위해 pixmap 대신 이미지의 xref를 저장합니다.
+        """
+        self.xref = xref
         self.rect = rect
+        self.pixmap: Optional[QPixmap] = None # 필요할 때 로드됩니다.
 
 class PageDisplayViewModel:
     def __init__(self, page_number: int, page_width: float, page_height: float,
