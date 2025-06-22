@@ -1,7 +1,7 @@
 import sys
 import asyncio
 import qasync
-from src.ui.main_window_view import MainWindow
+from src.ui.view.main_window_view import MainWindow
 from PySide6.QtWidgets import QApplication
 
 def main():

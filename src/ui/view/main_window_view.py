@@ -606,7 +606,8 @@ class MainWindow(QMainWindow):
 
     def _update_pdf_preview_content(self):
         """미리보기 다이얼로그가 열려있으면 내용을 업데이트합니다."""
-        if not self.pdf_preview_dialog or not self.pdf_preview_dialog.isVisible() or not hasattr(self, '_current_pdf') or self._current_pdf is None:
+        # isVisible() 체크를 제거하여, 다이얼로그가 아직 화면에 표시되기 전(처음 생성 시)에도 콘텐츠가 채워지도록 합니다.
+        if not self.pdf_preview_dialog or not hasattr(self, '_current_pdf') or self._current_pdf is None:
             return
 
         scroll_area = self.pdf_preview_dialog.findChild(QScrollArea)
