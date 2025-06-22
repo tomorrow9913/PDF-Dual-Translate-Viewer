@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication, QDialog, QScrollArea
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl, QEvent
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QImage
 from src.ui.widgets.pdf_view_widget import PdfViewWidget, PageDisplayViewModel, SegmentViewData, HighlightUpdateInfo, ImageViewData
 import fitz  # PyMuPDF
 from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -90,8 +90,15 @@ class MainWindow(QMainWindow):
         self.auto_translate = False
         self._current_view_model = None
         self.sidebar_visible = False
-        self.outline_tree = None
-        self.sidebar = None
+        # self.outline_tree와 self.sidebar를 항상 생성
+        self.outline_tree = QTreeWidget()
+        self.outline_tree.setHeaderLabels(["Title"])
+        self.outline_tree.itemClicked.connect(self._on_outline_item_clicked)
+        self.sidebar = QDockWidget("PDF 목차", self)
+        self.sidebar.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.sidebar.setWidget(self.outline_tree)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar)
+        self.sidebar.setVisible(False)  # 기본적으로 숨김
         self.setAcceptDrops(True)  # 드래그&드롭 허용
 
         self.main_widget = QWidget()
@@ -105,6 +112,7 @@ class MainWindow(QMainWindow):
         self._create_navigation_bar()
         self._create_status_bar()
         self._load_dummy_data()
+        self._create_pdf_thumbnail_widget()
 
         QApplication.instance().installEventFilter(self)
 
@@ -436,15 +444,30 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl(link))
 
     def toggle_sidebar(self):
-        if not self.sidebar:
-            self.sidebar = QDockWidget("PDF 목차", self)
-            self.sidebar.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-            self.outline_tree = QTreeWidget()
-            self.outline_tree.setHeaderLabels(["Title"])
-            self.outline_tree.itemClicked.connect(self._on_outline_item_clicked)
-            self.sidebar.setWidget(self.outline_tree)
-            self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar)
+        # 단순히 show/hide만 담당
         self.sidebar.setVisible(not self.sidebar.isVisible())
+        self._update_thumbnail_position()
+
+    def _create_pdf_thumbnail_widget(self):
+        # 썸네일을 절대 좌표로 배치, 사이드바 열릴 때 위치 보정
+        self.thumbnail_label = QLabel(self)
+        self.thumbnail_label.setFixedSize(120, 160)
+        self.thumbnail_label.setStyleSheet("border: 1px solid #aaa; background: #eee;")
+        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.thumbnail_label.setVisible(False)
+        self.thumbnail_label.mousePressEvent = self._show_pdf_modal
+        self._update_thumbnail_position()
+
+    def _update_thumbnail_position(self):
+        x_offset = 10
+        if self.sidebar and self.sidebar.isVisible():
+            x_offset += self.sidebar.width()
+        y_offset = self.height() - self.thumbnail_label.height() - 10
+        self.thumbnail_label.move(x_offset, y_offset)
+
+    def _on_mainwindow_resize(self, event):
+        self._update_thumbnail_position()
+        return super().resizeEvent(event)
 
     def _load_pdf_outline(self):
         if not hasattr(self, '_current_pdf') or self._current_pdf is None or not self.outline_tree:
@@ -504,6 +527,7 @@ class MainWindow(QMainWindow):
             self._current_pdf = doc
             self._current_pdf_path = file_path
             self._current_page = 0
+            # 썸네일만 갱신하지 않고, 항상 메인 뷰어/아웃라인/썸네일 모두 갱신
             if self.sidebar:
                 self._load_pdf_outline()
             if self.auto_translate:
@@ -614,6 +638,12 @@ class MainWindow(QMainWindow):
         self.page_input.setText(str(page_number+1))
         self.page_count_label.setText(f"/ {self._current_pdf.page_count}")
 
+        # 반드시 썸네일, 뷰어, 아웃라인 모두 갱신
+        self._update_pdf_thumbnail()
+        self._update_thumbnail_position()
+        if self.sidebar:
+            self._load_pdf_outline()
+
         # 자동 번역이 활성화된 경우, 백그라운드에서 번역을 시작합니다.
         if self.auto_translate:
             asyncio.create_task(self._run_translation_async())
@@ -710,3 +740,46 @@ class MainWindow(QMainWindow):
             self.go_to_next_page()
         else:
             super().keyPressEvent(event)
+
+    def _update_pdf_thumbnail(self):
+        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+            self.thumbnail_label.setVisible(False)
+            return
+        try:
+            # 현재 페이지의 썸네일을 표시하도록 수정
+            page = self._current_pdf[self._current_page]
+            pix = page.get_pixmap(matrix=fitz.Matrix(0.2, 0.2))
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(img)
+            self.thumbnail_label.setPixmap(pixmap.scaled(self.thumbnail_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.thumbnail_label.setVisible(True)
+            self._update_thumbnail_position()
+        except Exception:
+            self.thumbnail_label.setVisible(False)
+
+    def _show_pdf_modal(self, event):
+        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("원본 PDF 전체 보기")
+        dialog.setModal(True)
+        dialog.resize(800, 1000)
+        scroll = QScrollArea(dialog)
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        # 현재 페이지부터 최대 10페이지까지 미리보기
+        start = self._current_page
+        end = min(self._current_page + 10, self._current_pdf.page_count)
+        for i in range(start, end):
+            page = self._current_pdf[i]
+            pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
+            label = QLabel()
+            label.setPixmap(QPixmap.fromImage(img))
+            vbox.addWidget(label)
+        scroll.setWidget(container)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(scroll)
+        dialog.setLayout(layout)
+        dialog.exec()
