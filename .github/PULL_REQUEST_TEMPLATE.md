@@ -22,6 +22,8 @@
 
 <!--만약 이 PR이 특정 이슈를 닫는다면 아래의 링크를 참고하여 닫아주세요 #123-->
 이슈 첨부 방법은 [여기](https://docs.github.com/ko/get-started/writing-on-github/working-with-advanced-formatting/using-keywords-in-issues-and-pull-requests)를 참고
+<!--여러 작업들이 구성된 경우 아래 링크를 참고 바랍니다.-->
+작업 목록을 구성하는 방법은 [여기](https://docs.github.com/ko/get-started/writing-on-github/working-with-advanced-formatting/about-tasklists#creating-tasklists)를 참고
 
 ## ✅ 체크리스트 (Checklist)
 
