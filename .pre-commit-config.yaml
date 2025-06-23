@@ -1,21 +1,81 @@
 repos:
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: 'v5.10.1'  # Use the revision sha / tag you want to point at
+  ## GENERAL
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
     hooks:
-    -   id: isort
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ["--unsafe"]
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: no-commit-to-branch
+      - id: pretty-format-json
+        args: ["--autofix", --no-sort-keys, --no-ensure-ascii]
 
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.4.4
+  ## TOML
+  - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+    rev: v2.13.0
     hooks:
-      - id: ruff
-        args: ["--fix"]
-        language_version: python3.12
-      - id: ruff-format
-        language_version: python3.12
+      - id: pretty-format-toml
+        args: [--autofix]
+        files: pyproject.toml
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
+  ## BASH
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
     hooks:
-      - id: mypy
-        language_version: python3.12
+      - id: shellcheck
+        exclude: contrib
 
+  ## PYTHON
+  - repo: https://github.com/myint/autoflake
+    rev: v2.3.1
+    hooks:
+      - id: autoflake
+        args:
+          [
+            "--in-place",
+            "--remove-all-unused-imports",
+            "--remove-unused-variable",
+          ]
+
+  - repo: https://github.com/timothycrosley/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        exclude: contrib
+        args: ["--ignore=E266,W503,E203,E501,W605"]
+
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.0-beta
+    hooks:
+      - id: hadolint
+        args: ["--ignore=DL3013"]
+
+  - repo: local
+    hooks:
+      - id: pylint
+        name: pylint
+        entry: bash -c 'pylint --disable=W,C,R,E -j 0 -rn -sn prowler/'
+        language: system
+        files: '.*\.py'
+
+      - id: bandit
+        name: bandit
+        description: "Bandit is a tool for finding common security issues in Python code"
+        entry: bash -c 'bandit -q -lll -x '*_test.py,./contrib/,./.venv/' -r .'
+        language: system
+        files: '.*\.py'
