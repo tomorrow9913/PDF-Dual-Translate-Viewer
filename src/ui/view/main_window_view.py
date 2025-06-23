@@ -1,26 +1,49 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QCheckBox, QProgressBar, QComboBox, QDockWidget, QTreeWidget, QTreeWidgetItem, QApplication, QDialog, QScrollArea
-from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QUrl, QEvent
-from PySide6.QtGui import QPixmap, QImage, QDesktopServices
-from src.infrastructure.dtos.pdf_view_dtos import (HighlightUpdateInfo, ImageViewData, PageDisplayViewModel, SegmentViewData)
-from src.ui.widgets.pdf_view_widget import PdfViewWidget
-import fitz  # PyMuPDF
-from PySide6.QtWidgets import QFileDialog, QMessageBox
 import asyncio
-from src.infrastructure.translation.google_translate_async import google_translate
-from src.core.use_cases.pdf_page_service import PdfPageService
-from src.core.use_cases.pdf_parsing_service import PdfParsingService
-from src.core.use_cases.translation_service import TranslationService
-from src.common.constants import LANGUAGES
+
+import fitz  # PyMuPDF
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDockWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.adapters.controllers.pdf_controller import PdfController
 from src.adapters.presenters.pdf_presenter import PdfPresenter
+from src.common.constants import LANGUAGES
+from src.core.use_cases.pdf_page_service import PdfPageService
+from src.infrastructure.dtos.pdf_view_dtos import (
+    HighlightUpdateInfo,
+    PageDisplayViewModel,
+    SegmentViewData,
+)
+from src.ui.widgets.pdf_view_widget import PdfViewWidget
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF 번역기 - 듀얼 뷰어")
+        self.setWindowIcon(QIcon("src/ui/resources/asset/icon.ico"))  # 아이콘 경로 설정
         self.setGeometry(100, 100, 800, 600)
         self.auto_translate = False
-        self.pdf_preview_dialog = None # 미리보기 다이얼로그 참조
+        self.pdf_preview_dialog = None  # 미리보기 다이얼로그 참조
         self._current_view_model = None
         self.sidebar_visible = False
         self.controller = PdfController()  # 컨트롤러 인스턴스 생성
@@ -38,7 +61,7 @@ class MainWindow(QMainWindow):
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         self.main_layout = QVBoxLayout(self.main_widget)
-        self._syncing_scroll = False # 스크롤 동기화 재귀 방지 플래그
+        self._syncing_scroll = False  # 스크롤 동기화 재귀 방지 플래그
 
         self._create_toolbar()
         self._create_main_views()
@@ -54,7 +77,9 @@ class MainWindow(QMainWindow):
         """창 하단에 상태바(푸터)를 생성합니다."""
         self.status_bar = self.statusBar()
         self.status_label = QLabel("")
-        self.status_bar.addPermanentWidget(self.status_label) # 위젯을 우측에 영구적으로 추가
+        self.status_bar.addPermanentWidget(
+            self.status_label
+        )  # 위젯을 우측에 영구적으로 추가
 
     def _create_toolbar(self):
         toolbar_layout = QHBoxLayout()
@@ -77,7 +102,9 @@ class MainWindow(QMainWindow):
         self.original_lang_combo.setEditable(True)
         self.original_lang_combo.setInsertPolicy(QComboBox.NoInsert)
         self.original_lang_combo.setFixedWidth(180)
-        self.original_lang_combo.lineEdit().textEdited.connect(lambda text: self._filter_combo(self.original_lang_combo, text))
+        self.original_lang_combo.lineEdit().textEdited.connect(
+            lambda text: self._filter_combo(self.original_lang_combo, text)
+        )
         toolbar_layout.addWidget(self.original_lang_combo)
         toolbar_layout.addSpacing(20)
         toolbar_layout.addWidget(QLabel("번역 언어:"))
@@ -88,7 +115,9 @@ class MainWindow(QMainWindow):
         self.target_lang_combo.setEditable(True)
         self.target_lang_combo.setInsertPolicy(QComboBox.NoInsert)
         self.target_lang_combo.setFixedWidth(180)
-        self.target_lang_combo.lineEdit().textEdited.connect(lambda text: self._filter_combo(self.target_lang_combo, text))
+        self.target_lang_combo.lineEdit().textEdited.connect(
+            lambda text: self._filter_combo(self.target_lang_combo, text)
+        )
         toolbar_layout.addWidget(self.target_lang_combo)
         self.translate_btn = QPushButton("번역 실행")
         self.translate_btn.setStyleSheet("background-color: #c0e0c0;")
@@ -96,7 +125,9 @@ class MainWindow(QMainWindow):
         toolbar_layout.addWidget(self.translate_btn)
         # 계속 번역 체크박스
         self.auto_translate_checkbox = QCheckBox("계속 번역")
-        self.auto_translate_checkbox.stateChanged.connect(self._on_auto_translate_changed)
+        self.auto_translate_checkbox.stateChanged.connect(
+            self._on_auto_translate_changed
+        )
         toolbar_layout.addWidget(self.auto_translate_checkbox)
         # 글자 크기 +, - 버튼
         self.font_increase_btn = QPushButton("+")
@@ -107,13 +138,13 @@ class MainWindow(QMainWindow):
         self.font_decrease_btn.setFixedWidth(28)
         self.font_decrease_btn.clicked.connect(self.decrease_font_size)
         toolbar_layout.addWidget(self.font_decrease_btn)
-        
+
         toolbar_layout.addStretch(1)
         self.main_layout.addLayout(toolbar_layout)
 
         self.progress_bar = QProgressBar(self)
-        self.progress_bar.setRange(0, 0) # Indeterminate mode
-        self.progress_bar.setVisible(False) # Initially hidden
+        self.progress_bar.setRange(0, 0)  # Indeterminate mode
+        self.progress_bar.setVisible(False)  # Initially hidden
         self.main_layout.addWidget(self.progress_bar)
 
     def _on_auto_translate_changed(self, state):
@@ -147,7 +178,9 @@ class MainWindow(QMainWindow):
         translated_container.addWidget(self.translated_pdf_widget)
         view_area_layout.addLayout(translated_container)
 
-        self.main_layout.addLayout(view_area_layout, 1)  # stretch factor를 1로 설정하여 이 레이아웃이 수직 공간을 채우도록 함
+        self.main_layout.addLayout(
+            view_area_layout, 1
+        )  # stretch factor를 1로 설정하여 이 레이아웃이 수직 공간을 채우도록 함
         self.original_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
         self.translated_pdf_widget.segmentHovered.connect(self._handle_segment_hover)
 
@@ -156,10 +189,18 @@ class MainWindow(QMainWindow):
         self.translated_pdf_widget.fileDropped.connect(self._open_pdf_file_path)
 
         # 줌 동기화 시그널 연결
-        self.original_pdf_widget.zoom_in_requested.connect(self.translated_pdf_widget.zoom_in)
-        self.original_pdf_widget.zoom_out_requested.connect(self.translated_pdf_widget.zoom_out)
-        self.translated_pdf_widget.zoom_in_requested.connect(self.original_pdf_widget.zoom_in)
-        self.translated_pdf_widget.zoom_out_requested.connect(self.original_pdf_widget.zoom_out)
+        self.original_pdf_widget.zoom_in_requested.connect(
+            self.translated_pdf_widget.zoom_in
+        )
+        self.original_pdf_widget.zoom_out_requested.connect(
+            self.translated_pdf_widget.zoom_out
+        )
+        self.translated_pdf_widget.zoom_in_requested.connect(
+            self.original_pdf_widget.zoom_in
+        )
+        self.translated_pdf_widget.zoom_out_requested.connect(
+            self.original_pdf_widget.zoom_out
+        )
 
         # 링크 클릭 시그널 연결 (원본 뷰에만 적용)
         self.original_pdf_widget.linkClicked.connect(self._handle_link_click)
@@ -173,9 +214,15 @@ class MainWindow(QMainWindow):
         """두 PDF 뷰의 스크롤바를 동기화합니다."""
         # 스크롤바 가져오기
         self.orig_v_scroll = self.original_pdf_widget.graphics_view.verticalScrollBar()
-        self.trans_v_scroll = self.translated_pdf_widget.graphics_view.verticalScrollBar()
-        self.orig_h_scroll = self.original_pdf_widget.graphics_view.horizontalScrollBar()
-        self.trans_h_scroll = self.translated_pdf_widget.graphics_view.horizontalScrollBar()
+        self.trans_v_scroll = (
+            self.translated_pdf_widget.graphics_view.verticalScrollBar()
+        )
+        self.orig_h_scroll = (
+            self.original_pdf_widget.graphics_view.horizontalScrollBar()
+        )
+        self.trans_h_scroll = (
+            self.translated_pdf_widget.graphics_view.horizontalScrollBar()
+        )
 
         # 시그널 연결
         self.orig_v_scroll.valueChanged.connect(self._sync_v_scroll_from_original)
@@ -195,7 +242,10 @@ class MainWindow(QMainWindow):
             return
 
         proportion = (value - source_scroll.minimum()) / source_range
-        target_value = int(target_scroll.minimum() + proportion * (target_scroll.maximum() - target_scroll.minimum()))
+        target_value = int(
+            target_scroll.minimum()
+            + proportion * (target_scroll.maximum() - target_scroll.minimum())
+        )
         target_scroll.setValue(target_value)
 
         self._syncing_scroll = False
@@ -237,19 +287,19 @@ class MainWindow(QMainWindow):
         self.translated_pdf_widget.page_input = self.page_input
 
     def go_to_prev_page(self):
-        if hasattr(self, '_current_pdf') and self._current_pdf is not None:
+        if hasattr(self, "_current_pdf") and self._current_pdf is not None:
             if self._current_page > 0:
                 self._current_page -= 1
                 self._show_pdf_page(self._current_page)
 
     def go_to_next_page(self):
-        if hasattr(self, '_current_pdf') and self._current_pdf is not None:
+        if hasattr(self, "_current_pdf") and self._current_pdf is not None:
             if self._current_page < self._current_pdf.page_count - 1:
                 self._current_page += 1
                 self._show_pdf_page(self._current_page)
 
     def go_to_input_page(self):
-        if hasattr(self, '_current_pdf') and self._current_pdf is not None:
+        if hasattr(self, "_current_pdf") and self._current_pdf is not None:
             try:
                 page_num = int(self.page_input.text()) - 1
                 if 0 <= page_num < self._current_pdf.page_count:
@@ -264,70 +314,110 @@ class MainWindow(QMainWindow):
                 segment_id="orig_1",
                 text="Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
                 rect=(30, 100, 340, 30),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
             ),
             SegmentViewData(
                 segment_id="orig_2",
                 text="Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
                 rect=(30, 135, 340, 30),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
             ),
             SegmentViewData(
                 segment_id="orig_3",
                 text="Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
                 rect=(30, 170, 340, 45),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
-            )
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
+            ),
         ]
         translated_segments = [
             SegmentViewData(
                 segment_id="trans_1",
                 text="이것은 번역된 내용입니다. 스타일과 위치가 유지됩니다.",
                 rect=(30, 100, 340, 30),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
             ),
             SegmentViewData(
                 segment_id="trans_2",
                 text="두 번째 문장입니다. 번역은 원본과 1:1이 아닐 수도 있습니다.",
                 rect=(30, 135, 340, 30),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
             ),
-             SegmentViewData(
+            SegmentViewData(
                 segment_id="trans_3",
                 text="세 번째 문장입니다. 새로운 번역 세그먼트입니다.",
                 rect=(30, 170, 340, 45),
-                font_family="Arial", font_size=10, font_color="#555555",
-                is_bold=False, is_italic=False, is_highlighted=False
-            )
+                font_family="Arial",
+                font_size=10,
+                font_color="#555555",
+                is_bold=False,
+                is_italic=False,
+                is_highlighted=False,
+            ),
         ]
         dummy_page_view_model = PageDisplayViewModel(
             page_number=1,
             page_width=595,  # 더미 데이터용 페이지 너비 (A4 포인트 기준)
-            page_height=842, # 더미 데이터용 페이지 높이
+            page_height=842,  # 더미 데이터용 페이지 높이
             original_segments_view=original_segments,
             translated_segments_view=translated_segments,
-            image_views=[]
+            image_views=[],
         )
         self.display_page(dummy_page_view_model)
 
     def display_page(self, view_model):
         # 프레젠터를 통해 UI 데이터 추출
         page_data = PdfPresenter.present_page(view_model)
-        
-        page_width = page_data['page_width']
-        page_height = page_data['page_height']
-        
-        # 지연 로딩을 위해 pdf_doc 객체를 전달
-        pdf_doc = self._current_pdf if hasattr(self, '_current_pdf') and self._current_pdf else None
 
-        self.original_pdf_widget.render_page(page_data['original_segments'], page_data['image_views'], page_width, page_height, pdf_doc)
-        self.translated_pdf_widget.render_page(page_data['translated_segments'], page_data['image_views'], page_width, page_height, pdf_doc)
-        self.page_input.setText(str(page_data['page_number']))
+        page_width = page_data["page_width"]
+        page_height = page_data["page_height"]
+
+        # 지연 로딩을 위해 pdf_doc 객체를 전달
+        pdf_doc = (
+            self._current_pdf
+            if hasattr(self, "_current_pdf") and self._current_pdf
+            else None
+        )
+
+        self.original_pdf_widget.render_page(
+            page_data["original_segments"],
+            page_data["image_views"],
+            page_width,
+            page_height,
+            pdf_doc,
+        )
+        self.translated_pdf_widget.render_page(
+            page_data["translated_segments"],
+            page_data["image_views"],
+            page_width,
+            page_height,
+            pdf_doc,
+        )
+        self.page_input.setText(str(page_data["page_number"]))
         self._current_view_model = view_model
 
     def update_highlights(self, highlight_info):
@@ -335,9 +425,13 @@ class MainWindow(QMainWindow):
         segments_to_update = PdfPresenter.present_highlights(highlight_info)
         for segment_id, should_highlight in segments_to_update.items():
             if segment_id.startswith("orig_"):
-                self.original_pdf_widget.update_single_segment_highlight(segment_id, should_highlight)
+                self.original_pdf_widget.update_single_segment_highlight(
+                    segment_id, should_highlight
+                )
             elif segment_id.startswith("trans_"):
-                self.translated_pdf_widget.update_single_segment_highlight(segment_id, should_highlight)
+                self.translated_pdf_widget.update_single_segment_highlight(
+                    segment_id, should_highlight
+                )
 
     def _handle_segment_hover(self, view_context: str, segment_id):
         all_orig_ids = self.original_pdf_widget._current_segments_on_display.keys()
@@ -345,7 +439,9 @@ class MainWindow(QMainWindow):
         all_segment_ids = list(all_orig_ids) + list(all_trans_ids)
 
         # 비즈니스 로직 분리: PdfPageService 사용
-        segments_to_update = PdfPageService.update_highlights(all_segment_ids, segment_id)
+        segments_to_update = PdfPageService.update_highlights(
+            all_segment_ids, segment_id
+        )
 
         # 번역/원본 동기화 로직은 기존대로 유지
         if segment_id:
@@ -369,38 +465,59 @@ class MainWindow(QMainWindow):
             try:
                 # 내부 페이지 링크 처리
                 page_num = int(link.split(":")[1])
-                if hasattr(self, '_current_pdf') and 0 <= page_num < self._current_pdf.page_count:
+                if (
+                    hasattr(self, "_current_pdf")
+                    and 0 <= page_num < self._current_pdf.page_count
+                ):
                     self._show_pdf_page(page_num)
                 else:
-                    self.show_status_message(f"잘못된 링크: 문서에 없는 페이지({page_num + 1})입니다.")
+                    self.show_status_message(
+                        f"잘못된 링크: 문서에 없는 페이지({page_num + 1})입니다."
+                    )
             except (ValueError, IndexError):
                 self.show_status_message(f"잘못된 링크 형식: {link}")
         elif link.startswith("file:"):
             file_path = link[5:]
-            reply = QMessageBox.question(self, "파일 실행",
-                                         f"다음 파일을 여시겠습니까?\n\n{file_path}\n\n(주의: 알 수 없는 파일을 열면 위험할 수 있습니다.)",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self,
+                "파일 실행",
+                f"다음 파일을 여시겠습니까?\n\n{file_path}\n\n(주의: 알 수 없는 파일을 열면 위험할 수 있습니다.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 if not QDesktopServices.openUrl(QUrl.fromLocalFile(file_path)):
-                    QMessageBox.warning(self, "파일 열기 실패", f"파일을 열 수 없습니다: {file_path}")
+                    QMessageBox.warning(
+                        self, "파일 열기 실패", f"파일을 열 수 없습니다: {file_path}"
+                    )
         elif link.startswith("name:"):
             dest_name = link[5:]
-            if hasattr(self, '_current_pdf') and self._current_pdf:
+            if hasattr(self, "_current_pdf") and self._current_pdf:
                 try:
                     page_num = self._current_pdf.get_page_number_from_name(dest_name)
                     if page_num != -1:
                         self._show_pdf_page(page_num)
                     else:
-                        QMessageBox.warning(self, "잘못된 링크", f"문서에서 '{dest_name}' 목적지를 찾을 수 없습니다.")
+                        QMessageBox.warning(
+                            self,
+                            "잘못된 링크",
+                            f"문서에서 '{dest_name}' 목적지를 찾을 수 없습니다.",
+                        )
                 except Exception as e:
-                    QMessageBox.warning(self, "링크 오류", f"명명된 목적지 링크 처리 중 오류가 발생했습니다: {e}")
+                    QMessageBox.warning(
+                        self,
+                        "링크 오류",
+                        f"명명된 목적지 링크 처리 중 오류가 발생했습니다: {e}",
+                    )
         else:
             # 외부 URL 링크 처리
-            reply = QMessageBox.question(self, "외부 링크 열기",
-                                         f"다음 주소를 브라우저에서 여시겠습니까?\n\n{link}",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self,
+                "외부 링크 열기",
+                f"다음 주소를 브라우저에서 여시겠습니까?\n\n{link}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 QDesktopServices.openUrl(QUrl(link))
 
@@ -414,7 +531,9 @@ class MainWindow(QMainWindow):
         self.thumbnail_label = QLabel(self)
         self.thumbnail_label.setFixedSize(120, 160)
         self.thumbnail_label.setStyleSheet("border: 1px solid #aaa; background: #eee;")
-        self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        self.thumbnail_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom
+        )
         self.thumbnail_label.setVisible(False)
         self.thumbnail_label.mousePressEvent = self._show_pdf_modal
         self._update_thumbnail_position()
@@ -431,7 +550,11 @@ class MainWindow(QMainWindow):
         return super().resizeEvent(event)
 
     def _load_pdf_outline(self):
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None or not self.outline_tree:
+        if (
+            not hasattr(self, "_current_pdf")
+            or self._current_pdf is None
+            or not self.outline_tree
+        ):
             return
         self.outline_tree.clear()
         try:
@@ -450,7 +573,10 @@ class MainWindow(QMainWindow):
                 for entry in flat_toc_list:
                     # 목차 항목이 리스트 형태이고 최소 3개 이상의 요소를 가지는지 확인
                     if not isinstance(entry, list) or len(entry) < 3:
-                        self.show_status_message(f"경고: 목차 항목 형식이 잘못되었습니다: {entry}. 건너뜁니다.", timeout=5000)
+                        self.show_status_message(
+                            f"경고: 목차 항목 형식이 잘못되었습니다: {entry}. 건너뜁니다.",
+                            timeout=5000,
+                        )
                         continue
                     level, title, page = entry[:3]
                     item = QTreeWidgetItem([title])
@@ -492,14 +618,19 @@ class MainWindow(QMainWindow):
                 self._load_pdf_outline()
             if self.auto_translate:
                 import asyncio
+
                 asyncio.create_task(self._run_translation_async())
             else:
                 self._show_pdf_page(0)
         except Exception as e:
-            QMessageBox.critical(self, "PDF 열기 오류", f"PDF 파일을 열 수 없습니다.\n{e}")
+            QMessageBox.critical(
+                self, "PDF 열기 오류", f"PDF 파일을 열 수 없습니다.\n{e}"
+            )
 
     def open_pdf_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "PDF 파일 열기", "", "PDF Files (*.pdf)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "PDF 파일 열기", "", "PDF Files (*.pdf)"
+        )
         if not file_path:
             return
         self._open_pdf_file_path(file_path)
@@ -507,7 +638,7 @@ class MainWindow(QMainWindow):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith('.pdf'):
+                if url.toLocalFile().lower().endswith(".pdf"):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -515,20 +646,20 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith('.pdf'):
+            if file_path.lower().endswith(".pdf"):
                 self._open_pdf_file_path(file_path)
                 break
         event.acceptProposedAction()
 
     def _show_pdf_page(self, page_number):
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+        if not hasattr(self, "_current_pdf") or self._current_pdf is None:
             return
         if page_number < 0 or page_number >= self._current_pdf.page_count:
             return
         self._current_page = page_number
         view_model = self.controller.get_page_view_model(page_number)
         self.display_page(view_model)
-        self.page_input.setText(str(page_number+1))
+        self.page_input.setText(str(page_number + 1))
         self.page_count_label.setText(f"/ {self._current_pdf.page_count}")
         self._update_pdf_thumbnail()
         self._update_thumbnail_position()
@@ -536,9 +667,10 @@ class MainWindow(QMainWindow):
             self._load_pdf_outline()
         if self.auto_translate:
             import asyncio
+
             asyncio.create_task(self._run_translation_async())
-        
-        self._update_pdf_preview_content() # 미리보기 창 내용 업데이트
+
+        self._update_pdf_preview_content()  # 미리보기 창 내용 업데이트
 
     def run_translation(self):
         """
@@ -546,7 +678,6 @@ class MainWindow(QMainWindow):
         qasync에 의해 관리되는 이벤트 루프에서 실행됩니다.
         """
         asyncio.create_task(self._run_translation_async())
-
 
     async def _run_translation_async(self):
         if not self.controller.view_model:
@@ -556,40 +687,35 @@ class MainWindow(QMainWindow):
         try:
             source_lang = self.original_lang_combo.currentData()
             target_lang = self.target_lang_combo.currentData()
-            translated_segments = await self.controller.translate_current_page(source_lang, target_lang)
+            translated_segments = await self.controller.translate_current_page(
+                source_lang, target_lang
+            )
             if not translated_segments:
                 return
             image_views = self.controller.view_model.image_views
             page_width = self.controller.view_model.page_width
             page_height = self.controller.view_model.page_height
-            pdf_doc = self._current_pdf if hasattr(self, '_current_pdf') else None
+            pdf_doc = self._current_pdf if hasattr(self, "_current_pdf") else None
 
             # 원본 PDF 뷰의 현재 변환(확대/축소 및 이동) 상태를 가져옵니다.
             # 이를 통해 번역된 뷰가 원본 뷰와 동일한 시각적 상태를 유지하도록 합니다.
             original_view_transform = self.original_pdf_widget.graphics_view.transform()
 
             self.translated_pdf_widget.render_page(
-                translated_segments,
-                image_views,
-                page_width,
-                page_height,
-                pdf_doc
+                translated_segments, image_views, page_width, page_height, pdf_doc
             )
             # 번역된 뷰에 원본 뷰의 변환 상태를 적용합니다.
-            self.translated_pdf_widget.graphics_view.setTransform(original_view_transform)
+            self.translated_pdf_widget.graphics_view.setTransform(
+                original_view_transform
+            )
 
             self.controller.view_model.translated_segments_view = translated_segments
         except Exception as e:
-            QMessageBox.critical(self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}")
+            QMessageBox.critical(
+                self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}"
+            )
         finally:
             self.progress_bar.setVisible(False)
-
-    def _handle_segment_hover(self, view_context: str, segment_id):
-        all_orig_ids = self.original_pdf_widget._current_segments_on_display.keys()
-        all_trans_ids = self.translated_pdf_widget._current_segments_on_display.keys()
-        all_segment_ids = list(all_orig_ids) + list(all_trans_ids)
-        segments_to_update = self.controller.get_highlight_update(all_segment_ids, segment_id, view_context)
-        self.update_highlights(HighlightUpdateInfo(segments_to_update))
 
     def _filter_combo(self, combo, text):
         # 입력값이 코드/이름에 포함된 첫 항목을 선택
@@ -623,16 +749,28 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def _update_pdf_thumbnail(self):
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+        if not hasattr(self, "_current_pdf") or self._current_pdf is None:
             self.thumbnail_label.setVisible(False)
             return
         try:
             # 현재 페이지의 썸네일을 표시하도록 수정
             page = self._current_pdf[self._current_page]
             pix = page.get_pixmap(matrix=fitz.Matrix(0.2, 0.2))
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
+            img = QImage(
+                pix.samples,
+                pix.width,
+                pix.height,
+                pix.stride,
+                QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888,
+            )
             pixmap = QPixmap.fromImage(img)
-            self.thumbnail_label.setPixmap(pixmap.scaled(self.thumbnail_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.thumbnail_label.setPixmap(
+                pixmap.scaled(
+                    self.thumbnail_label.size(),
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
             self.thumbnail_label.setVisible(True)
             self._update_thumbnail_position()
         except Exception:
@@ -645,13 +783,19 @@ class MainWindow(QMainWindow):
     def _update_pdf_preview_content(self):
         """미리보기 다이얼로그가 열려있으면 내용을 업데이트합니다."""
         # isVisible() 체크를 제거하여, 다이얼로그가 아직 화면에 표시되기 전(처음 생성 시)에도 콘텐츠가 채워지도록 합니다.
-        if not self.pdf_preview_dialog or not hasattr(self, '_current_pdf') or self._current_pdf is None:
+        if (
+            not self.pdf_preview_dialog
+            or not hasattr(self, "_current_pdf")
+            or self._current_pdf is None
+        ):
             return
 
         scroll_area = self.pdf_preview_dialog.findChild(QScrollArea)
-        if not scroll_area: return
+        if not scroll_area:
+            return
         container = scroll_area.widget()
-        if not container: return
+        if not container:
+            return
         layout = container.layout()
 
         # 기존 위젯들 제거
@@ -666,13 +810,19 @@ class MainWindow(QMainWindow):
         for i in range(start, end):
             page = self._current_pdf[i]
             pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888)
+            img = QImage(
+                pix.samples,
+                pix.width,
+                pix.height,
+                pix.stride,
+                QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888,
+            )
             label = QLabel()
             label.setPixmap(QPixmap.fromImage(img))
             layout.addWidget(label)
 
     def _show_pdf_modal(self, event):
-        if not hasattr(self, '_current_pdf') or self._current_pdf is None:
+        if not hasattr(self, "_current_pdf") or self._current_pdf is None:
             return
 
         # 다이얼로그가 없으면 새로 생성
@@ -687,9 +837,9 @@ class MainWindow(QMainWindow):
             dialog_layout.addWidget(scroll)
 
             container = QWidget()
-            vbox = QVBoxLayout(container)
+            QVBoxLayout(container)
             scroll.setWidget(container)
-            
+
             self.pdf_preview_dialog.finished.connect(self._on_preview_closed)
 
         self._update_pdf_preview_content()
