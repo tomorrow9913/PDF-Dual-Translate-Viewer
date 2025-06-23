@@ -1,9 +1,8 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: 'v5.10.1'  # Use the revision sha / tag you want to point at
     hooks:
-      - id: black
-        language_version: python3.12
+    -   id: isort
 
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.4.4
@@ -19,9 +18,4 @@ repos:
     hooks:
       - id: mypy
         language_version: python3.12
-
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: 'v5.10.1'  # Use the revision sha / tag you want to point at
-    hooks:
-    -   id: isort
 
