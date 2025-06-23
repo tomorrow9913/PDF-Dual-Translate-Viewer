@@ -29,4 +29,11 @@ dev = [
 [tool.ruff]
 # Ruff 설정 (선택)
 line-length = 88
-select = ["E", "F", "W", "I"] # 기본 규칙 + isort
+lint.select = ["E", "F", "W", "I"] # 기본 규칙 + isort
+
+[[tool.mypy.overrides]]
+module = "fitz.*"
+ignore_missing_imports = true
+
+[mypy]
+explicit_package_bases = true
