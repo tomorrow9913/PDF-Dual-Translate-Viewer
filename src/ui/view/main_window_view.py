@@ -658,6 +658,9 @@ class MainWindow(QMainWindow):
         if page_number < 0 or page_number >= self._current_pdf.page_count:
             return
         self._current_page = page_number
+        # 현재 확대/이동 상태 저장
+        orig_transform = self.original_pdf_widget.graphics_view.transform()
+        trans_transform = self.translated_pdf_widget.graphics_view.transform()
         view_model = self.controller.get_page_view_model(page_number)
         self.display_page(view_model)
         self.page_input.setText(str(page_number + 1))
@@ -670,8 +673,10 @@ class MainWindow(QMainWindow):
             import asyncio
 
             asyncio.create_task(self._run_translation_async())
-
         self._update_pdf_preview_content()  # 미리보기 창 내용 업데이트
+        # 확대/이동 상태 복원
+        self.original_pdf_widget.graphics_view.setTransform(orig_transform)
+        self.translated_pdf_widget.graphics_view.setTransform(trans_transform)
 
     def run_translation(self):
         """
