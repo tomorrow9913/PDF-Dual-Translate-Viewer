@@ -1,4 +1,15 @@
-from .segment_view_data import SegmentViewData
-from .highlight_update_info import HighlightUpdateInfo
-from .image_view_data import ImageViewData
-from .page_display_view_model import PageDisplayViewModel
+from .app_settings_dtos import AppSettings
+from .pdf_view_dtos import (
+    HighlightUpdateInfo,
+    ImageViewData,
+    PageDisplayViewModel,
+    SegmentViewData,
+)
+
+__all__ = [
+    "SegmentViewData",
+    "HighlightUpdateInfo",
+    "ImageViewData",
+    "PageDisplayViewModel",
+    "AppSettings",
+]

@@ -2,8 +2,10 @@ import asyncio
 
 import fitz  # PyMuPDF
 from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon, QImage, QPixmap
-from PySide6.QtWidgets import (
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QImage, QPixmap
+from PySide6.QtWidgets import QTreeWidget  # QAction removed from here
+from PySide6.QtWidgets import QTreeWidgetItem  # QAction removed from here
+from PySide6.QtWidgets import (  # QAction removed from here
     QApplication,
     QCheckBox,
     QComboBox,
@@ -18,8 +20,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -28,11 +28,13 @@ from src.adapters.controllers.pdf_controller import PdfController
 from src.adapters.presenters.pdf_presenter import PdfPresenter
 from src.common.constants import LANGUAGES
 from src.core.use_cases.pdf_page_service import PdfPageService
+from src.infrastructure.dtos.app_settings_dtos import AppSettings
 from src.infrastructure.dtos.pdf_view_dtos import (
     HighlightUpdateInfo,
     PageDisplayViewModel,
     SegmentViewData,
 )
+from src.ui.view.settings_dialog import SettingsDialog
 from src.ui.widgets.pdf_view_widget import PdfViewWidget
 
 
@@ -70,8 +72,11 @@ class MainWindow(QMainWindow):
         self._create_status_bar()
         self._load_dummy_data()
         self._create_pdf_thumbnail_widget()
+        self._create_menu_bar()
 
         QApplication.instance().installEventFilter(self)
+
+        self.current_settings = AppSettings()  # 폰트/하이라이트 등 통합 관리
 
     def _create_status_bar(self):
         """창 하단에 상태바(푸터)를 생성합니다."""
@@ -846,3 +851,29 @@ class MainWindow(QMainWindow):
         self.pdf_preview_dialog.show()
         self.pdf_preview_dialog.raise_()
         self.pdf_preview_dialog.activateWindow()
+
+    def _create_menu_bar(self):
+        menu_bar = self.menuBar()
+        settings_menu = menu_bar.addMenu("설정(&S)")
+        settings_action = QAction("설정 열기", self)
+        settings_action.triggered.connect(self._open_settings_dialog)
+        settings_menu.addAction(settings_action)
+
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(self.current_settings, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self.current_settings = dialog.get_settings()
+            self.apply_font_to_views(self.current_settings.font)
+            self.apply_highlight_color_to_views(self.current_settings.highlight_color)
+
+    def apply_highlight_color_to_views(self, color):
+        if hasattr(self, "original_pdf_widget"):
+            self.original_pdf_widget.set_highlight_color(color)
+        if hasattr(self, "translated_pdf_widget"):
+            self.translated_pdf_widget.set_highlight_color(color)
+
+    def apply_font_to_views(self, font):
+        if hasattr(self, "original_pdf_widget"):
+            self.original_pdf_widget.set_font(font)
+        if hasattr(self, "translated_pdf_widget"):
+            self.translated_pdf_widget.set_font(font)

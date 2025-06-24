@@ -1,6 +1,8 @@
 import asyncio
+
 from src.adapters.gateways.translation_gateway import TranslationGateway
-from src.ui.widgets.pdf_view_widget import SegmentViewData
+from src.infrastructure.dtos.pdf_view_dtos import SegmentViewData
+
 
 class TranslationService:
     def __init__(self, gateway: TranslationGateway):
@@ -11,7 +13,10 @@ class TranslationService:
         SegmentViewData 리스트를 받아 번역 결과를 반환
         """
         texts_to_translate = [seg.text for seg in segments]
-        tasks = [self.gateway.translate(text, source_lang, target_lang) for text in texts_to_translate]
+        tasks = [
+            self.gateway.translate(text, source_lang, target_lang)
+            for text in texts_to_translate
+        ]
         translated_texts = await asyncio.gather(*tasks)
         return translated_texts
 
@@ -30,6 +35,7 @@ class TranslationService:
                 font_color=seg.font_color.name(),
                 is_bold=seg.is_bold,
                 is_italic=seg.is_italic,
-                is_highlighted=seg.is_highlighted
-            ) for i, seg in enumerate(original_segments)
+                is_highlighted=seg.is_highlighted,
+            )
+            for i, seg in enumerate(original_segments)
         ]
