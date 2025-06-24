@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QSpinBox  # 추가
 from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -17,12 +18,13 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings: AppSettings, parent=None):  # type: ignore
         super().__init__(parent)
         self.setWindowTitle("설정")
-        self.resize(400, 240)
+        self.resize(400, 280)
         self.setModal(True)
         # Create a mutable copy of current settings to work with
         self._new_settings = AppSettings(
             font_family=current_settings.font_family,
             highlight_color_hex=current_settings.highlight_color_hex,
+            prefetch_page_count=current_settings.prefetch_page_count,  # 추가
         )
         self._init_ui()
 
@@ -50,6 +52,18 @@ class SettingsDialog(QDialog):
         color_layout.addWidget(self.color_preview)
         color_layout.addStretch()
         main_layout.addLayout(color_layout)
+
+        # 미리 번역할 페이지 수 설정
+        prefetch_layout = QHBoxLayout()
+        prefetch_layout.addWidget(QLabel("미리 번역할 페이지 수:"))
+        self.prefetch_spin = QSpinBox()
+        self.prefetch_spin.setRange(0, 20)
+        self.prefetch_spin.setValue(self._new_settings.prefetch_page_count)
+        self.prefetch_spin.setSingleStep(1)
+        self.prefetch_spin.valueChanged.connect(self._on_prefetch_count_changed)
+        prefetch_layout.addWidget(self.prefetch_spin)
+        prefetch_layout.addStretch()
+        main_layout.addLayout(prefetch_layout)
 
         # 예시 텍스트 미리보기 (일부만 하이라이트)
         preview_layout = QHBoxLayout()
@@ -80,6 +94,10 @@ class SettingsDialog(QDialog):
             self._new_settings.highlight_color_hex = color.name()
             self._update_highlight_color_preview(color)
             self._update_preview_label()
+
+    def _on_prefetch_count_changed(self, value):
+        self._new_settings.prefetch_page_count = value
+        # 미리보기 등 필요시 반영 가능
 
     def _update_highlight_color_preview(self, color: QColor):
         self.color_preview.setStyleSheet(

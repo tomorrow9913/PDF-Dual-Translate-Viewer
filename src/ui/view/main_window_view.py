@@ -83,6 +83,10 @@ class MainWindow(QMainWindow):
         self.current_settings = self._load_settings()  # 폰트/하이라이트 등 통합 관리
         self.apply_highlight_color_to_views(self.current_settings.highlight_color)
 
+        # --- Prefetch 관련 초기화 추가 ---
+        self.prefetch_cache = {}  # {page_number: translated_segments}
+        self.prefetch_tasks = {}  # {page_number: asyncio.Task}
+
     def _load_settings(self):
         if os.path.exists(self.SETTINGS_PATH):
             try:
@@ -701,6 +705,44 @@ class MainWindow(QMainWindow):
         # 확대/이동 상태 복원
         self.original_pdf_widget.graphics_view.setTransform(orig_transform)
         self.translated_pdf_widget.graphics_view.setTransform(trans_transform)
+        # --- Prefetch logic 추가 ---
+        self._trigger_prefetch_translations(page_number)
+
+    def _trigger_prefetch_translations(self, current_page):
+        count = getattr(self.current_settings, "prefetch_page_count", 0)
+        if not hasattr(self, "_current_pdf") or self._current_pdf is None:
+            return
+        max_page = self._current_pdf.page_count
+        for offset in range(1, count + 1):
+            page_num = current_page + offset
+            if page_num >= max_page:
+                break
+            if page_num in self.prefetch_cache or page_num in self.prefetch_tasks:
+                continue  # 이미 번역됨/진행중
+            self.prefetch_tasks[page_num] = asyncio.create_task(
+                self._prefetch_translate_page(page_num)
+            )
+
+    async def _prefetch_translate_page(self, page_number):
+        try:
+            # 페이지 뷰모델 준비
+            view_model = self.controller.get_page_view_model(page_number)
+            source_lang = self.original_lang_combo.currentData()
+            target_lang = self.target_lang_combo.currentData()
+            translated_segments = (
+                await self.controller.translation_service.translate_segments(
+                    view_model.original_segments_view, source_lang, target_lang
+                )
+            )
+            segments = self.controller.translation_service.build_translated_segments(
+                view_model.original_segments_view, translated_segments
+            )
+            self.prefetch_cache[page_number] = segments
+        except Exception as e:
+            print(f"Prefetch translation failed for page {page_number}: {e}")
+            self.prefetch_cache[page_number] = None  # 실패 표시
+        finally:
+            self.prefetch_tasks.pop(page_number, None)
 
     def run_translation(self):
         """
@@ -717,28 +759,31 @@ class MainWindow(QMainWindow):
         try:
             source_lang = self.original_lang_combo.currentData()
             target_lang = self.target_lang_combo.currentData()
-            translated_segments = await self.controller.translate_current_page(
-                source_lang, target_lang
-            )
+            page_num = self._current_page
+            # prefetch 캐시 우선 사용
+            if (
+                page_num in self.prefetch_cache
+                and self.prefetch_cache[page_num] is not None
+            ):
+                translated_segments = self.prefetch_cache[page_num]
+            else:
+                translated_segments = await self.controller.translate_current_page(
+                    source_lang, target_lang
+                )
+                self.prefetch_cache[page_num] = translated_segments
             if not translated_segments:
                 return
             image_views = self.controller.view_model.image_views
             page_width = self.controller.view_model.page_width
             page_height = self.controller.view_model.page_height
             pdf_doc = self._current_pdf if hasattr(self, "_current_pdf") else None
-
-            # 원본 PDF 뷰의 현재 변환(확대/축소 및 이동) 상태를 가져옵니다.
-            # 이를 통해 번역된 뷰가 원본 뷰와 동일한 시각적 상태를 유지하도록 합니다.
             original_view_transform = self.original_pdf_widget.graphics_view.transform()
-
             self.translated_pdf_widget.render_page(
                 translated_segments, image_views, page_width, page_height, pdf_doc
             )
-            # 번역된 뷰에 원본 뷰의 변환 상태를 적용합니다.
             self.translated_pdf_widget.graphics_view.setTransform(
                 original_view_transform
             )
-
             self.controller.view_model.translated_segments_view = translated_segments
         except Exception as e:
             QMessageBox.critical(
