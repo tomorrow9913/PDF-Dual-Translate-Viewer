@@ -22,7 +22,6 @@ class SettingsDialog(QDialog):
         # Create a mutable copy of current settings to work with
         self._new_settings = AppSettings(
             font_family=current_settings.font_family,
-            font_size=current_settings.font_size,
             highlight_color_hex=current_settings.highlight_color_hex,
         )
         self._init_ui()
@@ -72,7 +71,7 @@ class SettingsDialog(QDialog):
         main_layout.addLayout(button_layout)
 
     def _on_font_changed(self, font):
-        self._new_settings.font.setFamily(font.family())
+        self._new_settings.font_family = font.family()
         self._update_preview_label()
 
     def _on_color_btn_clicked(self):

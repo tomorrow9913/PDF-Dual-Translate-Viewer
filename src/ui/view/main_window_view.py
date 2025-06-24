@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 
 import fitz  # PyMuPDF
 from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
@@ -39,6 +41,8 @@ from src.ui.widgets.pdf_view_widget import PdfViewWidget
 
 
 class MainWindow(QMainWindow):
+    SETTINGS_PATH = "settings.json"
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF 번역기 - 듀얼 뷰어")
@@ -76,7 +80,27 @@ class MainWindow(QMainWindow):
 
         QApplication.instance().installEventFilter(self)
 
-        self.current_settings = AppSettings()  # 폰트/하이라이트 등 통합 관리
+        self.current_settings = self._load_settings()  # 폰트/하이라이트 등 통합 관리
+        self.apply_highlight_color_to_views(self.current_settings.highlight_color)
+
+    def _load_settings(self):
+        if os.path.exists(self.SETTINGS_PATH):
+            try:
+                with open(self.SETTINGS_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return AppSettings.from_dict(data)
+            except Exception:
+                pass
+        return AppSettings()
+
+    def _save_settings(self):
+        try:
+            with open(self.SETTINGS_PATH, "w", encoding="utf-8") as f:
+                json.dump(
+                    self.current_settings.to_dict(), f, ensure_ascii=False, indent=2
+                )
+        except Exception:
+            pass
 
     def _create_status_bar(self):
         """창 하단에 상태바(푸터)를 생성합니다."""
@@ -870,6 +894,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.current_settings, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self.current_settings = dialog.get_settings()
+            self._save_settings()
             self.apply_font_to_views(self.current_settings.font)
             self.apply_highlight_color_to_views(self.current_settings.highlight_color)
 
