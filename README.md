@@ -6,6 +6,16 @@
 
 This project is a desktop application that provides a dual-view (original/translated) PDF viewer, page navigation, highlight synchronization, translation integration, and style/layout preservation. It is built with PySide6, PyMuPDF, and follows a clean architecture design.
 
+## 🖼️ Screenshots
+
+| Main View | Thumbnail Preview | Table of Contents View |
+|---|---|---|
+| ![Main](image/main.png) | ![Thumbnail Preview](image/orig_view.png) | ![Table of Contents](image/table_view.png) |
+
+- **Main View**: Default dual PDF viewer and translator screen.
+- **Thumbnail Preview**: When clicking the bottom-left thumbnail, shows a preview of page 10.
+- **Table of Contents View**: Main view with the left-side table of contents (outline) panel open.
+
 ## 📂 Folder Structure
 
 ```
