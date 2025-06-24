@@ -768,6 +768,7 @@ class MainWindow(QMainWindow):
                 and self.prefetch_cache[page_num] is not None
             ):
                 translated_segments = self.prefetch_cache[page_num]
+
                 # 캐시 사용 시에도 view_model을 현재 페이지로 갱신
                 self.controller.get_page_view_model(page_num)
             else:
