@@ -94,10 +94,6 @@ class MainWindow(QMainWindow):
         self.menu_btn.setFixedWidth(32)
         self.menu_btn.clicked.connect(self.toggle_sidebar)
         toolbar_layout.addWidget(self.menu_btn)
-        # 파일 열기 버튼
-        file_open_btn = QPushButton("파일 열기")
-        file_open_btn.clicked.connect(self.open_pdf_file)
-        toolbar_layout.addWidget(file_open_btn)
         toolbar_layout.addSpacing(10)
         toolbar_layout.addWidget(QLabel("원본 언어:"))
         self.original_lang_combo = QComboBox()
@@ -854,6 +850,12 @@ class MainWindow(QMainWindow):
 
     def _create_menu_bar(self):
         menu_bar = self.menuBar()
+        # 입력 메뉴
+        input_menu = menu_bar.addMenu("입력(&I)")
+        file_open_action = QAction("파일 열기", self)
+        file_open_action.triggered.connect(self.open_pdf_file)
+        input_menu.addAction(file_open_action)
+        # 설정 메뉴
         settings_menu = menu_bar.addMenu("설정(&S)")
         settings_action = QAction("설정 열기", self)
         settings_action.triggered.connect(self._open_settings_dialog)
