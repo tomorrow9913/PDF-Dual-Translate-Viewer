@@ -880,7 +880,4 @@ class MainWindow(QMainWindow):
             self.translated_pdf_widget.set_highlight_color(color)
 
     def apply_font_to_views(self, font):
-        if hasattr(self, "original_pdf_widget"):
-            self.original_pdf_widget.set_font(font)
-        if hasattr(self, "translated_pdf_widget"):
-            self.translated_pdf_widget.set_font(font)
+        pass  # 폰트 일괄 적용 기능 제거 (원본 강조 등 유지)

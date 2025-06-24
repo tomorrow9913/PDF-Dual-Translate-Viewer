@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
 )
 
@@ -31,38 +30,29 @@ class SettingsDialog(QDialog):
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
 
-        # Font settings
+        # 폰트 설정 (QFontComboBox만)
         font_layout = QHBoxLayout()
         font_layout.addWidget(QLabel("폰트:"))
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(self._new_settings.font)
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
         font_layout.addWidget(self.font_combo)
-
-        font_layout.addWidget(QLabel("크기:"))
-        self.font_size_spinbox = QSpinBox()
-        self.font_size_spinbox.setRange(6, 72)
-        self.font_size_spinbox.setValue(self._new_settings.font_size)
-        self.font_size_spinbox.valueChanged.connect(self._on_font_size_changed)
-        font_layout.addWidget(self.font_size_spinbox)
         main_layout.addLayout(font_layout)
 
-        # Highlight color settings
+        # 하이라이트 색상 설정
         color_layout = QHBoxLayout()
         color_layout.addWidget(QLabel("하이라이트 색상:"))
-        self.highlight_color_button = QPushButton("색상 선택")
-        self.highlight_color_button.clicked.connect(
-            self._on_highlight_color_button_clicked
-        )
-        self.highlight_color_preview = QLabel()
-        self.highlight_color_preview.setFixedSize(20, 20)
+        self.color_btn = QPushButton("색상 선택")
+        self.color_btn.clicked.connect(self._on_color_btn_clicked)
+        self.color_preview = QLabel()
+        self.color_preview.setFixedSize(40, 20)
         self._update_highlight_color_preview(self._new_settings.highlight_color)
-        color_layout.addWidget(self.highlight_color_button)
-        color_layout.addWidget(self.highlight_color_preview)
+        color_layout.addWidget(self.color_btn)
+        color_layout.addWidget(self.color_preview)
         color_layout.addStretch()
         main_layout.addLayout(color_layout)
 
-        # Preview text
+        # 예시 텍스트 미리보기 (일부만 하이라이트)
         preview_layout = QHBoxLayout()
         preview_layout.addWidget(QLabel("미리보기:"))
         self.preview_label = QLabel()
@@ -71,26 +61,21 @@ class SettingsDialog(QDialog):
         preview_layout.addStretch()
         main_layout.addLayout(preview_layout)
 
-        # OK/Cancel buttons
+        # OK/Cancel 버튼
         button_layout = QHBoxLayout()
         ok_button = QPushButton("확인")
         ok_button.clicked.connect(self.accept)
         cancel_button = QPushButton("취소")
         cancel_button.clicked.connect(self.reject)
-        button_layout.addStretch()
         button_layout.addWidget(ok_button)
         button_layout.addWidget(cancel_button)
         main_layout.addLayout(button_layout)
 
-    def _on_font_changed(self, font: QFont):
-        self._new_settings.font_family = font.family()
+    def _on_font_changed(self, font):
+        self._new_settings.font.setFamily(font.family())
         self._update_preview_label()
 
-    def _on_font_size_changed(self, size: int):
-        self._new_settings.font_size = size
-        self._update_preview_label()
-
-    def _on_highlight_color_button_clicked(self):
+    def _on_color_btn_clicked(self):
         color = QColorDialog.getColor(self._new_settings.highlight_color, self)
         if color.isValid():
             self._new_settings.highlight_color_hex = color.name()
@@ -98,7 +83,7 @@ class SettingsDialog(QDialog):
             self._update_preview_label()
 
     def _update_highlight_color_preview(self, color: QColor):
-        self.highlight_color_preview.setStyleSheet(
+        self.color_preview.setStyleSheet(
             f"background-color: {color.name()}; border: 1px solid black;"
         )
 
