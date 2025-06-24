@@ -1,5 +1,7 @@
 import fitz
+
 from src.core.use_cases.pdf_parsing_service import PdfParsingService
+
 
 def test_parse_page_returns_view_model():
     # 샘플 PDF 생성 (in-memory)

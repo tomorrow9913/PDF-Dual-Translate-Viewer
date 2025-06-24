@@ -1,10 +1,15 @@
+from typing import Dict, List, Optional
+
+
 class PdfPageService:
     @staticmethod
-    def update_highlights(current_segments, hovered_segment_id):
+    def update_highlights(
+        all_segment_ids: List[str], hovered_segment_id: Optional[str]
+    ) -> Dict[str, bool]:
         """
-        하이라이트 동기화 로직: hovered_segment_id에 해당하는 세그먼트만 True, 나머지는 False로 반환
+        Determines which segments to highlight based on the hovered segment.
         """
-        return {
-            seg_id: (seg_id == hovered_segment_id)
-            for seg_id in current_segments
-        }
+        segments_to_update = {segment_id: False for segment_id in all_segment_ids}
+        if hovered_segment_id and hovered_segment_id in segments_to_update:
+            segments_to_update[hovered_segment_id] = True
+        return segments_to_update

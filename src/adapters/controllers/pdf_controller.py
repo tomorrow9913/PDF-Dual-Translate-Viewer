@@ -1,7 +1,6 @@
-from src.core.use_cases.pdf_parsing_service import PdfParsingService
-from src.core.use_cases.translation_service import TranslationService
 from src.core.use_cases.pdf_page_service import PdfPageService
-from src.common.constants import LANGUAGES
+from src.core.use_cases.translation_service import TranslationService
+
 
 class PdfController:
     def __init__(self, pdf_doc=None, translation_service=None, pdf_parser=None):
@@ -12,17 +11,24 @@ class PdfController:
         if translation_service is not None:
             self.translation_service = translation_service
         else:
-            from src.adapters.gateways.google_translation_gateway import GoogleTranslationGateway
+            from src.adapters.gateways.google_translation_gateway import (
+                GoogleTranslationGateway,
+            )
+
             self.translation_service = TranslationService(GoogleTranslationGateway())
         # PDF 파서 주입(없으면 기본 FitzPdfParserGateway 사용)
         if pdf_parser is not None:
             self.pdf_parser = pdf_parser
         else:
-            from src.adapters.gateways.fitz_pdf_parser_gateway import FitzPdfParserGateway
+            from src.adapters.gateways.fitz_pdf_parser_gateway import (
+                FitzPdfParserGateway,
+            )
+
             self.pdf_parser = FitzPdfParserGateway()
 
     def open_pdf(self, file_path):
         import fitz
+
         self.pdf_doc = fitz.open(file_path)
         self.current_page = 0
         return self.pdf_doc
@@ -39,22 +45,31 @@ class PdfController:
         if not self.view_model:
             return None
         original_segments = self.view_model.original_segments_view
-        translated_texts = await self.translation_service.translate_segments(original_segments, source_lang, target_lang)
-        translated_segments = self.translation_service.build_translated_segments(original_segments, translated_texts)
+        translated_texts = await self.translation_service.translate_segments(
+            original_segments, source_lang, target_lang
+        )
+        translated_segments = self.translation_service.build_translated_segments(
+            original_segments, translated_texts
+        )
         self.view_model.translated_segments_view = translated_segments
         return translated_segments
 
     def get_highlight_update(self, all_segment_ids, hovered_segment_id, view_context):
-        segments_to_update = PdfPageService.update_highlights(all_segment_ids, hovered_segment_id)
+        segments_to_update = PdfPageService.update_highlights(
+            all_segment_ids, hovered_segment_id
+        )
         # 동기화 로직(원본-번역 쌍 하이라이트)
         all_orig_ids = [s for s in all_segment_ids if s.startswith("orig_")]
         all_trans_ids = [s for s in all_segment_ids if s.startswith("trans_")]
         if hovered_segment_id:
+            # 원본 세그먼트가 호버되면, 해당 번역 세그먼트도 하이라이트
             if view_context == "ORIGINAL" and hovered_segment_id.startswith("orig_"):
                 translated_sibling_id = hovered_segment_id.replace("orig_", "trans_")
                 if translated_sibling_id in all_trans_ids:
                     segments_to_update[translated_sibling_id] = True
-            elif view_context == "TRANSLATED" and hovered_segment_id.startswith("trans_"):
+            elif view_context == "TRANSLATED" and hovered_segment_id.startswith(
+                "trans_"
+            ):
                 original_sibling_id = hovered_segment_id.replace("trans_", "orig_")
                 if original_sibling_id in all_orig_ids:
                     segments_to_update[original_sibling_id] = True

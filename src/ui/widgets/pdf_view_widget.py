@@ -1,18 +1,30 @@
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene,
-    QGraphicsRectItem, QGraphicsTextItem, QApplication, QMainWindow,
-    QHBoxLayout, QLabel, QPushButton, QLineEdit, QGraphicsItem, QSizePolicy, QGraphicsPixmapItem
-)
-from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QTimer
-from PySide6.QtGui import QFont, QColor, QBrush, QPainter, QPixmap, QTransform, QTextCursor, QTextCharFormat
-import html # html 모듈 추가
-import fitz
+from typing import Dict, List, Optional
 
-from typing import List, Tuple, Optional, Dict
-from src.infrastructure.dtos.pdf_view_dtos import SegmentViewData, HighlightUpdateInfo, ImageViewData, PageDisplayViewModel
-from .text_segment_item import TextSegmentItem
-from .image_item import ImageItem
+import fitz
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QPainter,
+    QPixmap,
+    QTextCharFormat,
+    QTextCursor,
+)
+from PySide6.QtWidgets import (
+    QGraphicsScene,
+    QGraphicsTextItem,
+    QGraphicsView,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.infrastructure.dtos.pdf_view_dtos import ImageViewData, SegmentViewData
+
 from .highlight_overlay import HighlightOverlay
+from .image_item import ImageItem
+from .text_segment_item import TextSegmentItem
 
 # --- DTOs (Data Transfer Objects) - 클래스 다이어그램에서 정의된 뷰 모델 활용 ---
 # class SegmentViewData:
@@ -53,15 +65,17 @@ from .highlight_overlay import HighlightOverlay
 #         self.image_views = image_views
 #         self.error_message = error_message
 
+
 class PdfViewWidget(QWidget):
     """
     단일 PDF 페이지를 렌더링하고 텍스트 세그먼트 상호작용을 처리하는 위젯.
     """
+
     segmentHovered = Signal(str, object)
     # 뷰 동기화를 위한 시그널
     zoom_in_requested = Signal()
     zoom_out_requested = Signal()
-    linkClicked = Signal(str) # linkClicked 시그널 추가
+    linkClicked = Signal(str)  # linkClicked 시그널 추가
     fileDropped = Signal(str)  # PDF 파일 드롭 시그널 추가
 
     def __init__(self, view_context: str, parent: Optional[QWidget] = None):
@@ -80,6 +94,8 @@ class PdfViewWidget(QWidget):
         self._lazy_load_timer.setInterval(100)  # 100ms
         self._lazy_load_timer.timeout.connect(self._load_visible_images)
 
+        self._current_highlight_color = QColor("#ffffcc")  # 기본 하이라이트 색상
+
         self._init_ui()
 
     def _init_ui(self):
@@ -88,21 +104,38 @@ class PdfViewWidget(QWidget):
         self.graphics_scene = QGraphicsScene(self)
         self.graphics_view = QGraphicsView(self.graphics_scene)
         self.graphics_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.graphics_view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.graphics_view.setResizeAnchor(
+            QGraphicsView.ViewportAnchor.AnchorViewCenter
+        )
+        self.graphics_view.setTransformationAnchor(
+            QGraphicsView.ViewportAnchor.AnchorViewCenter
+        )
         self.graphics_view.setDragMode(QGraphicsView.NoDrag)
         self.graphics_view.setMouseTracking(True)
         self.graphics_view.wheelEvent = self._custom_wheel_event
         self.graphics_view.mouseMoveEvent = self._custom_mouse_move_event
-        self.graphics_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.graphics_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         # 스크롤 이벤트 발생 시 지연 로딩 스케줄링
-        self.graphics_view.verticalScrollBar().valueChanged.connect(self.schedule_lazy_load)
-        self.graphics_view.horizontalScrollBar().valueChanged.connect(self.schedule_lazy_load)
+        self.graphics_view.verticalScrollBar().valueChanged.connect(
+            self.schedule_lazy_load
+        )
+        self.graphics_view.horizontalScrollBar().valueChanged.connect(
+            self.schedule_lazy_load
+        )
         self.layout.addWidget(self.graphics_view)
         self.setLayout(self.layout)
         self.graphics_scene.setBackgroundBrush(QBrush(QColor("#ffffff")))
 
-    def render_page(self, segments: List[SegmentViewData], images: List[ImageViewData], page_width: float, page_height: float, pdf_doc: Optional[fitz.Document]):
+    def render_page(
+        self,
+        segments: List[SegmentViewData],
+        images: List[ImageViewData],
+        page_width: float,
+        page_height: float,
+        pdf_doc: Optional[fitz.Document],
+    ):
         """
         주어진 세그먼트와 이미지 목록을 기반으로 페이지 내용을 렌더링합니다.
         페이지의 실제 크기를 기준으로 Scene의 좌표계를 설정합니다.
@@ -126,7 +159,7 @@ class PdfViewWidget(QWidget):
 
         if not segments:
             self.fit_to_view()
-            self.schedule_lazy_load() # 텍스트가 없어도 이미지는 로드
+            self.schedule_lazy_load()  # 텍스트가 없어도 이미지는 로드
             return
         for segment_data in segments:
             # 하이라이트 오버레이 분리 적용
@@ -134,14 +167,17 @@ class PdfViewWidget(QWidget):
                 overlay = HighlightOverlay(segment_data.rect)
                 self.graphics_scene.addItem(overlay)
             text_item = TextSegmentItem(segment_data)
+            text_item.set_highlight_color(
+                self._current_highlight_color
+            )  # 하이라이트 색상 적용
             if segment_data.link_uri:
                 text_item.linkActivated.connect(self._on_link_activated)
             self.graphics_scene.addItem(text_item)
             self._text_items[segment_data.segment_id] = text_item
             self._current_segments_on_display[segment_data.segment_id] = segment_data
         # 씬의 크기가 페이지 크기로 고정되었으므로, 뷰를 여기에 맞춥니다.
-        self.fit_to_view() # 모든 아이템이 추가된 후 뷰에 맞춤
-        self.schedule_lazy_load() # 초기 렌더링 후 보이는 이미지 로드
+        self.fit_to_view()  # 모든 아이템이 추가된 후 뷰에 맞춤
+        self.schedule_lazy_load()  # 초기 렌더링 후 보이는 이미지 로드
 
     def schedule_lazy_load(self):
         """보이는 이미지 로드를 위한 스케줄을 잡습니다 (디바운싱)."""
@@ -153,7 +189,9 @@ class PdfViewWidget(QWidget):
             return
 
         # 씬 좌표계에서 현재 보이는 영역을 계산합니다.
-        visible_rect = self.graphics_view.mapToScene(self.graphics_view.viewport().rect()).boundingRect()
+        visible_rect = self.graphics_view.mapToScene(
+            self.graphics_view.viewport().rect()
+        ).boundingRect()
 
         for item in self._image_items:
             # 아이템이 보이고 아직 로드되지 않았다면 로드합니다.
@@ -173,13 +211,17 @@ class PdfViewWidget(QWidget):
                     # 오류가 발생해도 전체가 멈추지 않도록 처리
                     print(f"Error lazy-loading image xref {item.image_data.xref}: {e}")
 
-    def _apply_highlight_format(self, text_item: QGraphicsTextItem, highlight: bool):
+    def _apply_highlight_format(
+        self, text_item: QGraphicsTextItem, highlight: bool, color: QColor = None
+    ):
         """텍스트 아이템에 하이라이트 서식을 적용하거나 제거합니다."""
+        if color is None:
+            color = getattr(self, "_current_highlight_color", QColor("#ffffcc"))
         cursor = QTextCursor(text_item.document())
         cursor.select(QTextCursor.SelectionType.Document)
         char_format = QTextCharFormat()
         if highlight:
-            char_format.setBackground(QBrush(QColor("#ffffcc")))
+            char_format.setBackground(QBrush(color))
         else:
             char_format.clearBackground()
         cursor.setCharFormat(char_format)
@@ -187,7 +229,9 @@ class PdfViewWidget(QWidget):
     def update_single_segment_highlight(self, segment_id: str, highlight: bool):
         if segment_id in self._text_items:
             text_item = self._text_items[segment_id]
-            self._apply_highlight_format(text_item, highlight)
+            self._apply_highlight_format(
+                text_item, highlight, self._current_highlight_color
+            )
             if segment_id in self._current_segments_on_display:
                 self._current_segments_on_display[segment_id].is_highlighted = highlight
 
@@ -207,7 +251,7 @@ class PdfViewWidget(QWidget):
         super(QGraphicsView, self.graphics_view).mouseMoveEvent(event)
 
     def _on_link_activated(self, link: str):
-        self.linkClicked.emit(link) # linkClicked 시그널 방출
+        self.linkClicked.emit(link)  # linkClicked 시그널 방출
 
     def _custom_wheel_event(self, event):
         """
@@ -218,14 +262,18 @@ class PdfViewWidget(QWidget):
         """
         modifiers = event.modifiers()
         if modifiers == Qt.KeyboardModifier.ControlModifier:
-            self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+            self.graphics_view.setTransformationAnchor(
+                QGraphicsView.ViewportAnchor.AnchorUnderMouse
+            )
             if event.angleDelta().y() > 0:
                 self.graphics_view.scale(1.1, 1.1)
                 self.zoom_in_requested.emit()
             else:
                 self.graphics_view.scale(1 / 1.1, 1 / 1.1)
                 self.zoom_out_requested.emit()
-            self.graphics_view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+            self.graphics_view.setTransformationAnchor(
+                QGraphicsView.ViewportAnchor.AnchorViewCenter
+            )
             event.accept()
         elif modifiers == Qt.KeyboardModifier.ShiftModifier:
             h_scroll = self.graphics_view.horizontalScrollBar()
@@ -244,8 +292,10 @@ class PdfViewWidget(QWidget):
         현재 scene의 콘텐츠를 view에 맞게 조정합니다.
         """
         if not self.graphics_scene.sceneRect().isEmpty():
-            self.graphics_view.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-    
+            self.graphics_view.fitInView(
+                self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
+            )
+
     def resizeEvent(self, event):
         """위젯 크기가 변경될 때 지연 로딩을 스케줄링합니다."""
         super().resizeEvent(event)
@@ -262,7 +312,7 @@ class PdfViewWidget(QWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith('.pdf'):
+                if url.toLocalFile().lower().endswith(".pdf"):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -270,7 +320,19 @@ class PdfViewWidget(QWidget):
     def dropEvent(self, event):
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith('.pdf'):
+            if file_path.lower().endswith(".pdf"):
                 self.fileDropped.emit(file_path)
                 break
         event.acceptProposedAction()
+
+    def set_font(self, font: QFont):
+        """
+        외부에서 전달된 QFont를 현재 표시 중인 모든 텍스트 세그먼트에 적용합니다.
+        """
+        for text_item in self._text_items.values():
+            text_item.setFont(font)
+
+    def set_highlight_color(self, color: QColor):
+        self._current_highlight_color = color
+        for text_item in self._text_items.values():
+            text_item.set_highlight_color(color)
