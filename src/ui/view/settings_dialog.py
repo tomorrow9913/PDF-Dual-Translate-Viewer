@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QSpinBox  # 추가
 from PySide6.QtWidgets import (
+    QCheckBox,
     QColorDialog,
     QDialog,
     QFontComboBox,
@@ -26,6 +27,7 @@ class SettingsDialog(QDialog):
             highlight_color_hex=current_settings.highlight_color_hex,
             prefetch_page_count=current_settings.prefetch_page_count,
             preview_page_count=current_settings.preview_page_count,
+            enable_highlighting=current_settings.enable_highlighting,
         )
         self._init_ui()
 
@@ -78,6 +80,18 @@ class SettingsDialog(QDialog):
         preview_layout.addStretch()
         main_layout.addLayout(preview_layout)
 
+        # 하이라이트 기능 활성화 여부 설정
+        highlight_enable_layout = QHBoxLayout()
+        self.highlight_enable_checkbox = QCheckBox("하이라이트 기능 사용")
+        self.highlight_enable_checkbox.setChecked(
+            self._new_settings.enable_highlighting
+        )
+        self.highlight_enable_checkbox.stateChanged.connect(
+            self._on_highlight_enabled_changed
+        )
+        highlight_enable_layout.addWidget(self.highlight_enable_checkbox)
+        main_layout.addLayout(highlight_enable_layout)
+
         # 예시 텍스트 미리보기 (일부만 하이라이트)
         preview_layout = QHBoxLayout()
         preview_layout.addWidget(QLabel("미리보기:"))
@@ -114,6 +128,9 @@ class SettingsDialog(QDialog):
 
     def _on_preview_count_changed(self, value):
         self._new_settings.preview_page_count = value
+
+    def _on_highlight_enabled_changed(self, state):
+        self._new_settings.enable_highlighting = bool(state)
 
     def _update_highlight_color_preview(self, color: QColor):
         self.color_preview.setStyleSheet(

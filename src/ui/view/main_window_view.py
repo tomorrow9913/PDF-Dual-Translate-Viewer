@@ -463,6 +463,17 @@ class MainWindow(QMainWindow):  # type: ignore
         self._current_view_model = view_model
 
     def update_highlights(self, highlight_info):
+        # 하이라이트 기능이 꺼져 있으면 모든 하이라이트를 끄고, 나머지 로직은 무시
+        if not self.current_settings.enable_highlighting:
+            for seg_id in self.original_pdf_widget._current_segments_on_display.keys():
+                self.original_pdf_widget.update_single_segment_highlight(seg_id, False)
+            for (
+                seg_id
+            ) in self.translated_pdf_widget._current_segments_on_display.keys():
+                self.translated_pdf_widget.update_single_segment_highlight(
+                    seg_id, False
+                )
+            return
         # 프레젠터를 통해 하이라이트 데이터 추출
         segments_to_update = PdfPresenter.present_highlights(highlight_info)
         for segment_id, should_highlight in segments_to_update.items():
@@ -484,6 +495,20 @@ class MainWindow(QMainWindow):  # type: ignore
         segments_to_update = PdfPageService.update_highlights(
             all_segment_ids, segment_id
         )
+
+        # 하이라이트 기능이 비활성화되어 있으면 모든 세그먼트의 하이라이트를 끕니다.
+        if not self.current_settings.enable_highlighting:
+            for seg_id in all_orig_ids:
+                self.original_pdf_widget.update_single_segment_highlight(seg_id, False)
+            for seg_id in all_trans_ids:
+                self.translated_pdf_widget.update_single_segment_highlight(
+                    seg_id, False
+                )
+            # 하이라이트가 비활성화된 경우, 추가적인 동기화 로직을 실행하지 않습니다.
+            self.update_highlights(
+                HighlightUpdateInfo(segments_to_update)
+            )  # 모든 하이라이트를 끄기 위해 호출
+            return
 
         # 원본 뷰와 번역본 뷰의 하이라이트를 동기화합니다.
         # 번역 전(라인-라인)과 번역 후(라인-블록) 상태에 따라 다르게 동작합니다.
