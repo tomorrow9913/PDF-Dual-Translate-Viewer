@@ -12,6 +12,7 @@ class AppSettings:
     preview_page_count: int = 10  # 미리보기 다이얼로그에 표시할 페이지 수 (썸네일)
     enable_highlighting: bool = True  # 하이라이트 기능 활성화 여부
 
+
     @property
     def font(self) -> QFont:
         return QFont(self.font_family)
@@ -27,6 +28,7 @@ class AppSettings:
             "prefetch_page_count": self.prefetch_page_count,  # 백그라운드 프리페치
             "preview_page_count": self.preview_page_count,  # 미리보기 다이얼로그 (썸네일)
             "enable_highlighting": self.enable_highlighting,
+
         }
 
     @staticmethod

@@ -91,7 +91,6 @@ class SettingsDialog(QDialog):
         )
         highlight_enable_layout.addWidget(self.highlight_enable_checkbox)
         main_layout.addLayout(highlight_enable_layout)
-
         # 예시 텍스트 미리보기 (일부만 하이라이트)
         preview_layout = QHBoxLayout()
         preview_layout.addWidget(QLabel("미리보기:"))
