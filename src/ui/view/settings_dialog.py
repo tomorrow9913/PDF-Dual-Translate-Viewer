@@ -24,7 +24,8 @@ class SettingsDialog(QDialog):
         self._new_settings = AppSettings(
             font_family=current_settings.font_family,
             highlight_color_hex=current_settings.highlight_color_hex,
-            prefetch_page_count=current_settings.prefetch_page_count,  # 추가
+            prefetch_page_count=current_settings.prefetch_page_count,
+            preview_page_count=current_settings.preview_page_count,
         )
         self._init_ui()
 
@@ -65,6 +66,18 @@ class SettingsDialog(QDialog):
         prefetch_layout.addStretch()
         main_layout.addLayout(prefetch_layout)
 
+        # 미리보기 페이지 수 설정
+        preview_layout = QHBoxLayout()
+        preview_layout.addWidget(QLabel("미리보기 페이지 수:"))
+        self.preview_spin = QSpinBox()
+        self.preview_spin.setRange(1, 50)  # 최소 1페이지, 최대 50페이지 등 적절히 설정
+        self.preview_spin.setValue(self._new_settings.preview_page_count)
+        self.preview_spin.setSingleStep(1)
+        self.preview_spin.valueChanged.connect(self._on_preview_count_changed)
+        preview_layout.addWidget(self.preview_spin)
+        preview_layout.addStretch()
+        main_layout.addLayout(preview_layout)
+
         # 예시 텍스트 미리보기 (일부만 하이라이트)
         preview_layout = QHBoxLayout()
         preview_layout.addWidget(QLabel("미리보기:"))
@@ -98,6 +111,9 @@ class SettingsDialog(QDialog):
     def _on_prefetch_count_changed(self, value):
         self._new_settings.prefetch_page_count = value
         # 미리보기 등 필요시 반영 가능
+
+    def _on_preview_count_changed(self, value):
+        self._new_settings.preview_page_count = value
 
     def _update_highlight_color_preview(self, color: QColor):
         self.color_preview.setStyleSheet(

@@ -45,14 +45,11 @@ class PdfController:
         if not self.view_model:
             return None
         original_segments = self.view_model.original_segments_view
-        translated_texts = await self.translation_service.translate_segments(
+        # 번역 서비스는 이제 {block_id: translated_text} 딕셔너리를 반환합니다.
+        translated_blocks = await self.translation_service.translate_segments(
             original_segments, source_lang, target_lang
         )
-        translated_segments = self.translation_service.build_translated_segments(
-            original_segments, translated_texts
-        )
-        self.view_model.translated_segments_view = translated_segments
-        return translated_segments
+        return translated_blocks
 
     def get_highlight_update(self, all_segment_ids, hovered_segment_id, view_context):
         segments_to_update = PdfPageService.update_highlights(

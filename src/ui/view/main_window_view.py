@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from typing import Optional
 
 import fitz  # PyMuPDF
 from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
@@ -40,7 +41,7 @@ from src.ui.view.settings_dialog import SettingsDialog
 from src.ui.widgets.pdf_view_widget import PdfViewWidget
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow):  # type: ignore
     SETTINGS_PATH = "settings.json"
 
     def __init__(self):
@@ -90,7 +91,7 @@ class MainWindow(QMainWindow):
     def _load_settings(self):
         if os.path.exists(self.SETTINGS_PATH):
             try:
-                with open(self.SETTINGS_PATH, "r", encoding="utf-8") as f:
+                with open(self.SETTINGS_PATH, "r", encoding="utf-8") as f:  # type: ignore
                     data = json.load(f)
                 return AppSettings.from_dict(data)
             except Exception:
@@ -349,6 +350,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_1",
+                line_id="dummy_line_1",
             ),
             SegmentViewData(
                 segment_id="orig_2",
@@ -360,6 +363,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_1",
+                line_id="dummy_line_2",
             ),
             SegmentViewData(
                 segment_id="orig_3",
@@ -371,6 +376,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_2",
+                line_id="dummy_line_3",
             ),
         ]
         translated_segments = [
@@ -384,6 +391,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_1",
+                line_id="dummy_line_1",
             ),
             SegmentViewData(
                 segment_id="trans_2",
@@ -395,6 +404,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_1",
+                line_id="dummy_line_2",
             ),
             SegmentViewData(
                 segment_id="trans_3",
@@ -406,6 +417,8 @@ class MainWindow(QMainWindow):
                 is_bold=False,
                 is_italic=False,
                 is_highlighted=False,
+                block_id="dummy_block_2",
+                line_id="dummy_line_3",
             ),
         ]
         dummy_page_view_model = PageDisplayViewModel(
@@ -472,16 +485,57 @@ class MainWindow(QMainWindow):
             all_segment_ids, segment_id
         )
 
-        # 번역/원본 동기화 로직은 기존대로 유지
+        # 원본 뷰와 번역본 뷰의 하이라이트를 동기화합니다.
+        # 번역 전(라인-라인)과 번역 후(라인-블록) 상태에 따라 다르게 동작합니다.
         if segment_id:
-            if view_context == "ORIGINAL" and segment_id.startswith("orig_"):
-                translated_sibling_id = segment_id.replace("orig_", "trans_")
-                if translated_sibling_id in all_trans_ids:
-                    segments_to_update[translated_sibling_id] = True
-            elif view_context == "TRANSLATED" and segment_id.startswith("trans_"):
-                original_sibling_id = segment_id.replace("trans_", "orig_")
-                if original_sibling_id in all_orig_ids:
-                    segments_to_update[original_sibling_id] = True
+            # 번역 뷰가 라인 기반인지(번역 전) 확인
+            is_trans_view_line_based = False
+            if self.translated_pdf_widget._current_segments_on_display:
+                first_trans_seg = next(
+                    iter(
+                        self.translated_pdf_widget._current_segments_on_display.values()
+                    )
+                )
+                is_trans_view_line_based = first_trans_seg.line_id is not None
+
+            if is_trans_view_line_based:
+                # 번역 전: 1:1 라인 하이라이트 동기화
+                if segment_id.startswith("orig_"):
+                    sibling_id = segment_id.replace("orig_", "trans_")
+                    if sibling_id in all_trans_ids:
+                        segments_to_update[sibling_id] = True
+                elif segment_id.startswith("trans_"):
+                    sibling_id = segment_id.replace("trans_", "orig_")
+                    if sibling_id in all_orig_ids:
+                        segments_to_update[sibling_id] = True
+            else:
+                # 번역 후: 라인-블록 하이라이트 동기화
+                if view_context == "ORIGINAL":
+                    original_segment = (
+                        self.original_pdf_widget._current_segments_on_display.get(
+                            segment_id
+                        )
+                    )
+                    if original_segment and original_segment.block_id:
+                        translated_block_id = f"trans_{original_segment.block_id}"
+                        if translated_block_id in all_trans_ids:
+                            segments_to_update[translated_block_id] = True
+                elif view_context == "TRANSLATED":
+                    translated_segment = (
+                        self.translated_pdf_widget._current_segments_on_display.get(
+                            segment_id
+                        )
+                    )
+                    if translated_segment and translated_segment.block_id:
+                        block_id_to_find = translated_segment.block_id
+                        for (
+                            orig_seg_id,
+                            orig_seg_data,
+                        ) in (
+                            self.original_pdf_widget._current_segments_on_display.items()
+                        ):
+                            if orig_seg_data.block_id == block_id_to_find:
+                                segments_to_update[orig_seg_id] = True
 
         self.update_highlights(HighlightUpdateInfo(segments_to_update))
 
@@ -698,9 +752,8 @@ class MainWindow(QMainWindow):
         if self.sidebar:
             self._load_pdf_outline()
         if self.auto_translate:
-            import asyncio
-
-            asyncio.create_task(self._run_translation_async())
+            # Pass the specific view_model to the async task to prevent race conditions
+            asyncio.create_task(self._run_translation_async(view_model))
         self._update_pdf_preview_content()  # 미리보기 창 내용 업데이트
         # 확대/이동 상태 복원
         self.original_pdf_widget.graphics_view.setTransform(orig_transform)
@@ -729,15 +782,13 @@ class MainWindow(QMainWindow):
             view_model = self.controller.get_page_view_model(page_number)
             source_lang = self.original_lang_combo.currentData()
             target_lang = self.target_lang_combo.currentData()
-            translated_segments = (
+            translated_blocks = (
                 await self.controller.translation_service.translate_segments(
                     view_model.original_segments_view, source_lang, target_lang
                 )
             )
-            segments = self.controller.translation_service.build_translated_segments(
-                view_model.original_segments_view, translated_segments
-            )
-            self.prefetch_cache[page_number] = segments
+            # Prefetch 캐시에는 번역된 블록 딕셔너리를 저장합니다.
+            self.prefetch_cache[page_number] = translated_blocks
         except Exception as e:
             print(f"Prefetch translation failed for page {page_number}: {e}")
             self.prefetch_cache[page_number] = None  # 실패 표시
@@ -751,45 +802,90 @@ class MainWindow(QMainWindow):
         """
         asyncio.create_task(self._run_translation_async())
 
-    async def _run_translation_async(self):
-        # 항상 현재 페이지의 view_model을 갱신
-        self.controller.get_page_view_model(self._current_page)
-        if not self.controller.view_model:
+    async def _run_translation_async(
+        self, view_model_to_translate: Optional[PageDisplayViewModel] = None
+    ):
+        # Step 1: Determine the target view model for this translation task.
+        # If not provided, it's a manual translation of the current page.
+        if view_model_to_translate is None:
+            # Ensure the controller's view model is for the current page.
+            view_model_to_translate = self.controller.get_page_view_model(
+                self._current_page
+            )
+
+        if not view_model_to_translate:
             self.show_status_message("번역할 내용이 없습니다.")
             return
+
+        # Step 2: Check for relevance. If the user has navigated away, abort.
+        page_num_to_translate = view_model_to_translate.page_number - 1
+        if page_num_to_translate != self._current_page:
+            # This translation task is for a page that is no longer visible.
+            return
+
         self.progress_bar.setVisible(True)
         try:
             source_lang = self.original_lang_combo.currentData()
             target_lang = self.target_lang_combo.currentData()
-            page_num = self._current_page
-            # prefetch 캐시 우선 사용
-            if (
-                page_num in self.prefetch_cache
-                and self.prefetch_cache[page_num] is not None
-            ):
-                translated_segments = self.prefetch_cache[page_num]
+            original_segments = view_model_to_translate.original_segments_view
 
-                # 캐시 사용 시에도 view_model을 현재 페이지로 갱신
-                self.controller.get_page_view_model(page_num)
+            # Step 3: Get translated text (from cache or new request).
+            translated_blocks = None
+            if (
+                page_num_to_translate in self.prefetch_cache
+                and self.prefetch_cache[page_num_to_translate] is not None
+            ):
+                translated_blocks = self.prefetch_cache[page_num_to_translate]
             else:
-                translated_segments = await self.controller.translate_current_page(
-                    source_lang, target_lang
+                # The translation service only needs the segments, not the whole controller state.
+                translated_blocks = (
+                    await self.controller.translation_service.translate_segments(
+                        original_segments, source_lang, target_lang
+                    )
                 )
-                self.prefetch_cache[page_num] = translated_segments
-            if not translated_segments:
+                if translated_blocks:
+                    self.prefetch_cache[page_num_to_translate] = translated_blocks
+
+            if not translated_blocks:
+                # Nothing to render if translation failed or returned empty.
                 return
-            image_views = self.controller.view_model.image_views
-            page_width = self.controller.view_model.page_width
-            page_height = self.controller.view_model.page_height
+
+            # Step 4: Final relevance check before updating the UI.
+            if page_num_to_translate != self._current_page:
+                return
+
+            # Step 5: Build the translated segment DTOs.
+            translated_segments = (
+                self.controller.translation_service.build_translated_segments(
+                    original_segments, translated_blocks
+                )
+            )
+
+            # Step 6: Render the translated view.
+            image_views = view_model_to_translate.image_views
+            page_width = view_model_to_translate.page_width
+            page_height = view_model_to_translate.page_height
             pdf_doc = self._current_pdf if hasattr(self, "_current_pdf") else None
+
+            # Preserve zoom/scroll from original view
             original_view_transform = self.original_pdf_widget.graphics_view.transform()
+
             self.translated_pdf_widget.render_page(
                 translated_segments, image_views, page_width, page_height, pdf_doc
             )
             self.translated_pdf_widget.graphics_view.setTransform(
                 original_view_transform
             )
-            self.controller.view_model.translated_segments_view = translated_segments
+
+            # Step 7: Update the main view model's translated part, if it's still the current one.
+            if (
+                self.controller.view_model
+                and self.controller.view_model.page_number
+                == view_model_to_translate.page_number
+            ):
+                self.controller.view_model.translated_segments_view = (
+                    translated_segments
+                )
         except Exception as e:
             QMessageBox.critical(
                 self, "번역 오류", f"번역 중 오류가 발생했습니다.\n{e}"
@@ -878,6 +974,20 @@ class MainWindow(QMainWindow):
             return
         layout = container.layout()
 
+        # Get the current width of the scroll area's viewport
+        # This will be the width available for the image to fit into
+        # Ensure the viewport has a valid width, otherwise use a default or dialog width
+        viewport_width = scroll_area.viewport().width()
+        if viewport_width <= 0:
+            # Fallback: use the dialog's width minus some estimated margins
+            viewport_width = (
+                self.pdf_preview_dialog.width() - 40
+            )  # Assuming 20px padding on each side
+            if viewport_width <= 0:  # Ensure it's still positive
+                viewport_width = (
+                    760  # A reasonable default if dialog width is also problematic
+                )
+
         # 기존 위젯들 제거
         while layout.count():
             child = layout.takeAt(0)
@@ -885,11 +995,13 @@ class MainWindow(QMainWindow):
                 child.widget().deleteLater()
 
         # 새로운 페이지 이미지들로 채우기
-        start = self._current_page
-        end = min(self._current_page + 10, self._current_pdf.page_count)
+        start = self._current_page  # type: ignore
+        end = min(self._current_page + self.current_settings.preview_page_count, self._current_pdf.page_count)  # type: ignore
+
         for i in range(start, end):
             page = self._current_pdf[i]
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
+            # Render at a higher resolution (e.g., 3x default) for better quality
+            pix = page.get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
             img = QImage(
                 pix.samples,
                 pix.width,
@@ -898,7 +1010,12 @@ class MainWindow(QMainWindow):
                 QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888,
             )
             label = QLabel()
-            label.setPixmap(QPixmap.fromImage(img))
+            # Scale the QPixmap to fit the viewport width while maintaining aspect ratio
+            scaled_pixmap = QPixmap.fromImage(img).scaledToWidth(
+                viewport_width, Qt.SmoothTransformation
+            )
+            label.setPixmap(scaled_pixmap)
+            label.setAlignment(Qt.AlignCenter)  # Center the image
             layout.addWidget(label)
 
     def _show_pdf_modal(self, event):

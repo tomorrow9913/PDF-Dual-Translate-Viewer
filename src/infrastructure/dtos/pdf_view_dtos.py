@@ -1,12 +1,25 @@
+from typing import Dict, List, Optional, Tuple
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QPixmap
-from typing import List, Tuple, Optional, Dict
+
 
 class SegmentViewData:
-    def __init__(self, segment_id: str, text: str, rect: Tuple[float, float, float, float],
-                 font_family: str, font_size: int, font_color: str,
-                 is_bold: bool, is_italic: bool, is_highlighted: bool,
-                 link_uri: Optional[str] = None):
+    def __init__(
+        self,
+        segment_id: str,
+        text: str,
+        rect: Tuple[float, float, float, float],
+        font_family: str,
+        font_size: int,
+        font_color: str,
+        is_bold: bool,
+        is_italic: bool,
+        is_highlighted: bool,
+        link_uri: Optional[str] = None,
+        block_id: Optional[str] = None,
+        line_id: Optional[str] = None,
+    ):
         self.segment_id = segment_id
         self.text = text
         self.rect = QRectF(rect[0], rect[1], rect[2], rect[3])
@@ -17,10 +30,14 @@ class SegmentViewData:
         self.is_italic = is_italic
         self.is_highlighted = is_highlighted
         self.link_uri = link_uri
+        self.block_id = block_id
+        self.line_id = line_id
+
 
 class HighlightUpdateInfo:
     def __init__(self, segments_to_update: Dict[str, bool]):
         self.segments_to_update = segments_to_update
+
 
 class ImageViewData:
     def __init__(self, xref: int, rect: QRectF):
@@ -29,13 +46,20 @@ class ImageViewData:
         """
         self.xref = xref
         self.rect = rect
-        self.pixmap: Optional[QPixmap] = None # 필요할 때 로드됩니다.
+        self.pixmap: Optional[QPixmap] = None  # 필요할 때 로드됩니다.
+
 
 class PageDisplayViewModel:
-    def __init__(self, page_number: int, page_width: float, page_height: float,
-                 original_segments_view: List[SegmentViewData],
-                 translated_segments_view: List[SegmentViewData],
-                 image_views: List[ImageViewData], error_message: Optional[str] = None):
+    def __init__(
+        self,
+        page_number: int,
+        page_width: float,
+        page_height: float,
+        original_segments_view: List[SegmentViewData],
+        translated_segments_view: List[SegmentViewData],
+        image_views: List[ImageViewData],
+        error_message: Optional[str] = None,
+    ):
         self.page_number = page_number
         self.page_width = page_width
         self.page_height = page_height

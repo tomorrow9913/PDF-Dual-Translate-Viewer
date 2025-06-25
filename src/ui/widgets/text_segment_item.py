@@ -33,8 +33,9 @@ class TextSegmentItem(QGraphicsTextItem):
         self.setDefaultTextColor(self._original_color)
 
         if segment_data.link_uri:
-            escaped_text = html.escape(segment_data.text)
-            html_content = f'<a href="{segment_data.link_uri}" style="color:blue; text-decoration:underline;">{escaped_text}</a>'
+            # HTML에서 줄바꿈을 인식하도록 \n을 <br>로 변환합니다.
+            text_for_html = html.escape(segment_data.text).replace("\n", "<br>")
+            html_content = f'<a href="{segment_data.link_uri}" style="color:blue; text-decoration:underline;">{text_for_html}</a>'
             self.setHtml(html_content)
             self.setTextInteractionFlags(Qt.TextBrowserInteraction)
             self.setOpenExternalLinks(False)
